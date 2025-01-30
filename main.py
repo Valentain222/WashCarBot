@@ -1,9 +1,9 @@
 from aiogram import Dispatcher
 import asyncio
 
-from bot_setup import bot
+from setups.bot_setup import bot
 
-from router_setup import router
+from setups.router_setup import router
 
 dp = Dispatcher()
 dp.include_router(router)
