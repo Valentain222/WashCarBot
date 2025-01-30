@@ -6,7 +6,7 @@ from json_storage import JsonDictsHandler
 
 from abc import abstractmethod, ABC
 
-from containers import MessageConfig, StateUserContainer, BotsConfigMessage, ButtonSettings
+from containers.bot_containers import MessageConfig, StateUserContainer, ButtonSettings
 
 from constants import texts, buttons, messages, constants, error_types
 

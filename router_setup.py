@@ -6,7 +6,7 @@ from aiogram import Router, types
 
 from users_manager import Users
 
-from containers import CallBackData
+from containers.bot_containers import CallBackData
 
 router = Router()
 users = Users()

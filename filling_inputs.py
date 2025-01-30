@@ -6,7 +6,7 @@ from menu_hanlders import menu_context, MenuEventHandler
 
 from datetime import date
 
-from containers import MessageConfig, StateUserContainer, ButtonSettings
+from containers.bot_containers import MessageConfig, StateUserContainer, ButtonSettings
 
 
 class FillingInputs:

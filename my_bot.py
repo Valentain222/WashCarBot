@@ -5,7 +5,7 @@ from aiogram import types
 from visual import Visual
 from sq_functions import sql_connect
 
-from containers import MessageConfig, StateUserContainer, CallBackData
+from containers.bot_containers import MessageConfig, StateUserContainer, CallBackData
 from bot_tools import MenuManager, PhotoManager, TextManager
 
 from menu_hanlders import MenuContext
@@ -65,7 +65,7 @@ class MYBot:
 
         if not self.bot.bots_message:
             self.bot.bots_message = message
-            self.bot.config_bots_message.update_config(messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START)
+            self.bot.config = messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START
 
         if command == '/restore' and self.photos.photos:
             await self.photos.send_photos(is_loading_message=False)
@@ -73,9 +73,9 @@ class MYBot:
         try:
             if command == '/reset':
                 self.state_user.clear()
-                self.bot.config_bots_message.update_config(messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START)
+                self.bot.config = messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START
 
-            await self.bot.send_message(self.bot.config_bots_message.configs, True, False)
+            await self.bot.send_message(self.bot.config, True, False)
         except Exception as e:
             print(e)
 
@@ -119,7 +119,7 @@ class MYBot:
                 is_spawn_new = True
                 await self.bot.delete_message(chat_id=self.bot.bots_message.chat.id,
                                               message_id=self.bot.bots_message.message_id)
-            response_message = self.bot.prev_config_bots_message.configs
+            response_message = self.bot.prev_config
 
         else:
             raise ValueError('Wrong callback!')
@@ -148,8 +148,8 @@ class MYBot:
         response_message = None
 
         if callback.state == 'browsing':
-            response_message = self.menu.browsing(callback.event, self.bot.config_bots_message.configs.text,
-                                                  self.bot.config_bots_message.configs.parse_mode)
+            response_message = self.menu.browsing(callback.event, self.bot.config.text,
+                                                  self.bot.config.parse_mode)
 
         elif callback.state == 'search':
             if self.menu.prev_group_menu_settings:

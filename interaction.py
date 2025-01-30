@@ -1,7 +1,7 @@
 from abc import abstractmethod, ABC
 
 from constants import messages, constants, texts, buttons
-from containers import MessageConfig, CallBackData, StateUserContainer, ButtonSettings
+from containers.bot_containers import MessageConfig, CallBackData, StateUserContainer, ButtonSettings
 from filling_inputs import FillingInputs
 from menu_hanlders import FillingEventHandler, EditPasswordEventHandler, BlackListEventHandler, \
     ParametersEditEventHandler, MenuContext

@@ -1,5 +1,5 @@
 import sqlite3
-from containers import ContainerData, BlackUserContainer
+from containers.data_containers import ContainerData, BlackUserContainer
 
 
 class SQliteTools:

@@ -9,16 +9,16 @@ from bot_setup import bot
 from aiogram import types
 import re
 
-from containers import GroupMessagesContainer, MenuGroupContainer, MessageConfig, BotsConfigMessage, PhotoContainer, \
-    ButtonSettings, CallBackData
+from containers.msg_mgmt_containers import GroupMessagesContainer, MenuGroupContainer, MessageConfig, PhotoContainer
+from containers.bot_containers import ButtonSettings, CallBackData
 
 
 class TextManager:
     def __init__(self):
         self.bots_message = None
 
-        self.config_bots_message = BotsConfigMessage()
-        self.prev_config_bots_message = BotsConfigMessage()
+        self.config: MessageConfig | None = None
+        self.prev_config: MessageConfig | None = None
 
     @staticmethod
     def make_keyboard(button_settings: tuple[tuple[ButtonSettings, ...]],
@@ -46,9 +46,9 @@ class TextManager:
         text = message.text
         parse_mode = message.parse_mode
 
-        if is_new_m is False and self.prev_config_bots_message:
-            is_edited_button_settings = button_setting != self.config_bots_message.configs.button_settings
-            is_edited_text = text != self.config_bots_message.configs.text
+        if is_new_m is False and self.prev_config:
+            is_edited_button_settings = button_setting != self.config.button_settings
+            is_edited_text = text != self.config.text
         else:
             is_edited_text = True
             is_edited_button_settings = True
@@ -60,8 +60,8 @@ class TextManager:
                 builder = None
 
             if remembered_configs:
-                self.prev_config_bots_message.update_config(self.config_bots_message.configs)
-                self.config_bots_message.update_config(message)
+                self.prev_config = self.config
+                self.config = message
             if not is_new_m:
                 try:
                     self.bots_message = await bot.edit_message_text(chat_id=self.bots_message.chat.id,
@@ -156,7 +156,7 @@ class GroupMessageManager:
             raise ValueError('Messages is clean')
 
         await bot.delete_message(self.text_manager.bots_message.chat.id, self.text_manager.bots_message.message_id)
-        await self.text_manager.send_message(self.text_manager.config_bots_message.configs, is_new_m=True)
+        await self.text_manager.send_message(self.text_manager.config, is_new_m=True)
 
     async def delete_group_message(self, reset=True):
         for message in self.group_message.messages:

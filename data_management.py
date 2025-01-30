@@ -1,4 +1,4 @@
-from containers import ContainerData, BlackUserContainer, FillingContainerData
+from containers.data_containers import ContainerData, BlackUserContainer, FillingContainerData
 
 from constants import error_types, errors
 
