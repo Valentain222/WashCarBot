@@ -98,7 +98,7 @@ class ContainerDataManager(Mode):
 
 # Manual managers
 
-class FillingContainer(DataManager, ContainerDataManager):
+class FillingManager(DataManager, ContainerDataManager):
     def __init__(self, filling_parameters: dict[str: FillingContainerData, ...]):
         DataManager.__init__(self, filling_parameters)
 
@@ -145,14 +145,10 @@ class BlackListManager:
 
     @property
     def string_data_remember_user(self) -> str:
-        text = ''
-        if self._user.name:
-            text += f'Имя: {self._user.name},\n'
-        if self._user.tag:
-            text += f'Тэг: {self._user.tag},\n'
-        text += f'ID: {self._user.id},\nДата блокировки: {self._user.date}'
-
-        return text
+        return f'Имя: {self._user.name},\n' if self._user.namee else '' + (f'Тэг: {self._user.tag},\n'
+                                                                           if self._user.tag else '') \
+                                                                     + (f'ID: {self._user.id},'
+                                                                        f'\nДата блокировки: {self._user.date}')
 
     @property
     def remembered_user(self) -> BlackUserContainer:

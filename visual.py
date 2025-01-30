@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-from data_management import FillingContainer
+from data_management import FillingManager
 
 import os
 
@@ -376,7 +376,7 @@ class VisualMethods:
 
 class Visual(VisualMethods):
 
-    def set_settings(self, settings: FillingContainer):
+    def set_settings(self, settings: FillingManager):
         pass
 
     def __open_graphs(self) -> tuple[str, ...]:

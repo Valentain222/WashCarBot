@@ -1,6 +1,6 @@
 from bot_tools import MenuManager
 from sq_functions import SQliteTools
-from data_management import FillingContainer, SettingsManager, BlackListManager
+from data_management import FillingManager, SettingsManager, BlackListManager
 
 from json_storage import JsonDictsHandler
 
@@ -46,7 +46,7 @@ class MenuEventHandler(ABC):
 
 
 class FillingEventHandler(MenuEventHandler):
-    def __init__(self, menu: MenuManager, sql_tools: SQliteTools, filling_state: FillingContainer,
+    def __init__(self, menu: MenuManager, sql_tools: SQliteTools, filling_state: FillingManager,
                  parameters: JsonDictsHandler, back_path: str):
         super().__init__(menu, sql_tools)
 

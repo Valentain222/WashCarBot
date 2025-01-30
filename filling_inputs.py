@@ -1,4 +1,4 @@
-from data_management import FillingContainer
+from data_management import FillingManager
 
 from constants import texts, constants, buttons, error_types
 
@@ -10,7 +10,7 @@ from containers.bot_containers import MessageConfig, StateUserContainer, ButtonS
 
 
 class FillingInputs:
-    def __init__(self, filling_container: FillingContainer, state_user: StateUserContainer,
+    def __init__(self, filling_container: FillingManager, state_user: StateUserContainer,
                  menu_handler: MenuEventHandler, main_path: str, slider_message: MessageConfig = None,
                  input_int_message: MessageConfig = None):
         self._filling_container = filling_container
@@ -94,7 +94,7 @@ class FillingInputs:
 
         return response_message
 
-    def __save_filling_data(self, value: any, name: str, filling_class: FillingContainer):
+    def __save_filling_data(self, value: any, name: str, filling_class: FillingManager):
         filling_class.add_value(name, value)
 
         return MessageConfig(button_settings=(ButtonSettings(self._MAIN_PATH, buttons.SUCCESSFUL_SAVING_TEXT),),

@@ -6,7 +6,7 @@ from filling_inputs import FillingInputs
 from menu_hanlders import FillingEventHandler, EditPasswordEventHandler, BlackListEventHandler, \
     ParametersEditEventHandler, MenuContext
 from sq_functions import SQliteTools
-from data_management import FillingContainer
+from data_management import FillingManager
 from json_storage import JsonDictsHandler
 
 from visual import Visual
@@ -24,7 +24,7 @@ class FillingInputsMethods:
 
 
 class InteractionFilling(FillingInputsMethods):
-    def __init__(self, filling_state: FillingContainer, state_user: StateUserContainer):
+    def __init__(self, filling_state: FillingManager, state_user: StateUserContainer):
         self.__filling_state = filling_state
         self.__state_user = state_user
 
@@ -77,7 +77,7 @@ class InteractionHandler(FillingInputsMethods, ABC):
 class DataOperatorInteraction(InteractionFilling, InteractionHandler):
     def __init__(self, state_user: StateUserContainer, menu: MenuManager,
                  sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
-        self._filling_state = FillingContainer(constants.FILLING_OPERATOR_MENU)
+        self._filling_state = FillingManager(constants.FILLING_OPERATOR_MENU)
 
         InteractionFilling.__init__(self, self._filling_state, state_user)
         InteractionHandler.__init__(self, state_user)
@@ -132,7 +132,7 @@ class DataOperatorInteraction(InteractionFilling, InteractionHandler):
 class AnalystInteraction(InteractionFilling, InteractionHandler):
     def __init__(self, state_user: StateUserContainer, visual: Visual, photos_manager: PhotoManager, menu: MenuManager,
                  sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
-        self._filling_state = FillingContainer(constants.FILLING_ANALYST_MENU)
+        self._filling_state = FillingManager(constants.FILLING_ANALYST_MENU)
 
         InteractionFilling.__init__(self, self._filling_state, state_user)
         InteractionHandler.__init__(self, state_user)
