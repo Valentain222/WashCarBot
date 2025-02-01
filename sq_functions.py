@@ -148,6 +148,9 @@ class SQliteTools:
                                                     "Volvo"))
         }
 
+    def add_parameter(self, parameter: str):
+        pass
+
     def delete_parameter(self, parameter_key: str):
         pass
 

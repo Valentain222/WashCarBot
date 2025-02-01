@@ -1,4 +1,4 @@
-from bot_containers import MessageConfig, ButtonSettings
+from containers.bot_containers import MessageConfig, ButtonSettings
 from aiogram import types
 
 

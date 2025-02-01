@@ -1,6 +1,6 @@
 from . import texts, constants
 
-from containers import ButtonSettings
+from containers.bot_containers import ButtonSettings
 
 DATE_MANUAL_INPUT_TEXT = 'Ручной ввод ✍'
 DATE_AUTO_INPUT_TEXT = 'Автоматическая 🔧'
@@ -30,8 +30,8 @@ MENU_BUTTONS = (ButtonSettings('menu_operation.search/start', SEARCH_TEXT),)
 BACK_BUTTON = (ButtonSettings('menu_operation.browsing/back', BACK_MENU_TEXT),)
 NEXT_BUTTON = (ButtonSettings('menu_operation.browsing/next', FORWARD_TEXT),)
 
-RESET_BLACK_LIST = ButtonSettings('interaction.black_list/reset_table', 'Сбросить таблицу')
+RESET_BLACK_LIST = ButtonSettings('interaction.black_list/reset_table', 'Сбросить')
 RESET_PASSWORDS = ButtonSettings('interaction.passwords/reset_passwords', 'Сбросить')
 
 PARAMETERS_ADDITIONAL_KEYBOARD = (ButtonSettings('interaction.parameters/add', 'Добавить ➕'),
-                                  ButtonSettings('interaction.parameters/reset_par', 'Сбросить'))
+                                  ButtonSettings('interaction.parameters/reset_parameters', 'Сбросить'))

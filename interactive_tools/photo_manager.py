@@ -3,7 +3,7 @@ from aiogram.types import InputMediaPhoto, FSInputFile
 
 from containers.msg_mgmt_containers import PhotoContainer
 from constants import messages
-from interactive_tools.text_messages.text_manager import TextManager
+from interactive_tools.text_manager import TextManager
 
 from setups.bot_setup import bot
 

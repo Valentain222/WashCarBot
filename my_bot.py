@@ -6,7 +6,7 @@ from visual import Visual
 from sq_functions import sql_connect
 
 from containers.bot_containers import MessageConfig, StateUserContainer, CallBackData
-from bot_tools import MenuManager, PhotoManager, TextManager
+from interactive_tools import MenuManager, PhotoManager, TextManager
 
 from menu_hanlders import MenuContext
 
@@ -50,7 +50,8 @@ class MYBot:
 
         self.USER_INPUTS = {
             'filling date': self.interaction_context.date_filling,
-            'filling int': self.interaction_context.int_filling
+            'filling int': self.interaction_context.int_filling,
+            'filling str': self.interaction_context.str_filling
         }
 
     async def help(self, message: types.Message):
@@ -141,6 +142,10 @@ class MYBot:
         if callback.parallel_action:
             if callback.parallel_action == 'group_exit':
                 await self.__content_clear()
+            elif callback.parallel_action == 'reset_black_list':
+                pass
+            elif callback.parallel_action == 'reset_parameters':
+                pass
             else:
                 raise ValueError(f'Wrong parallel action {callback.parallel_action}!')
 
@@ -195,10 +200,6 @@ class MYBot:
                     raise ValueError(f'Wrong number of parameters in filling {settings}!')
             else:
                 raise ValueError(f'Wrong filling state: {state}!')
-
-        elif state == 'input password':
-            self.sql_tools.save_password(self.admin_interaction.passwords.remember_key, text_message)
-            response_message = messages.SAVE_PASSWORD
 
         elif state == 'search':
             # Search data

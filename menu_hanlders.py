@@ -1,4 +1,4 @@
-from bot_tools import MenuManager
+from interactive_tools import MenuManager
 from sq_functions import SQliteTools
 from data_management import FillingManager, SettingsManager, BlackListManager
 
@@ -104,14 +104,9 @@ class EditPasswordEventHandler(MenuEventHandler):
                     self._menu.menu_keyboard('interaction', self._state, 'show', self._passwords.names),
                     reset_path='interaction.passwords/reset',
                     back_path='interaction.main||group_exit',
-                    text_menu=texts.TEXT_EDIT_PASSWORD_MENU,
-                    additional_keyboard=(buttons.RESET_PASSWORDS,)
-                    )
+                    text_menu=texts.TEXT_EDIT_PASSWORD_MENU)
             else:
                 response_message = self._create_empty_data_message()
-
-        elif event == 'reset_passwords':
-            pass
 
         elif event == 'reset':
             response_message = self._reset_menu('interaction.passwords/start')
@@ -134,7 +129,7 @@ class EditPasswordEventHandler(MenuEventHandler):
                                              parse_mode=constants.PARSE_MODE1
                                              )
         elif event.startswith('edit'):
-            self._state_user.update_state('input password')
+            self._state_user.update_state(f'filling str:input password')
             response_message = messages.INPUT_NEW_PASSWORD
 
         return response_message
@@ -167,7 +162,7 @@ class BlackListEventHandler(MenuEventHandler):
             response_message = self._reset_menu('interaction.black_list/start')
 
         elif event == 'reset_table':
-            pass
+            response_message = messages.IS_CLEANING_BLACK_LIST
 
         elif event.startswith('show'):
             number_button = self._menu.number_button(event)
@@ -190,11 +185,12 @@ class BlackListEventHandler(MenuEventHandler):
 
 
 class ParametersEditEventHandler(MenuEventHandler):
-    def __init__(self, menu: MenuManager, sq_tools: SQliteTools, parameters: SettingsManager):
+    def __init__(self, state_user: StateUserContainer, menu: MenuManager, sq_tools: SQliteTools,
+                 parameters: SettingsManager):
         super().__init__(menu, sq_tools)
 
         self._parameters = parameters
-
+        self._state_user = state_user
         self._number_button_group = None
 
     def event_handler(self, event: str) -> MessageConfig:
@@ -210,19 +206,19 @@ class ParametersEditEventHandler(MenuEventHandler):
                                                                                             self._parameters.names),
                                                    reset_path='interaction.parameters/reset',
                                                    back_path='interaction.main||group_exit',
-                                                   text_menu=texts.TEXT_EDIT_PARAMETERS,
-                                                   additional_keyboard=buttons.PARAMETERS_ADDITIONAL_KEYBOARD)
+                                                   text_menu=texts.TEXT_EDIT_PARAMETERS)
             else:
                 response_message = self._create_empty_data_message()
 
         elif event == 'reset':
             response_message = self._reset_menu('interaction.parameters/start')
 
-        elif event == 'reset_par':
-            pass
+        elif event == 'reset_parameters':
+            response_message = messages.IS_RESET_PATAMETERS
 
         elif event == 'add':
-            pass
+            self._state_user.update_state(f'filling str:parameter')
+            response_message = messages.INPUT_PARAMETER
 
         elif event.startswith('show-group'):
             self._number_button_group = self._menu.number_button(event)
@@ -235,7 +231,8 @@ class ParametersEditEventHandler(MenuEventHandler):
                 self._menu.menu_keyboard('interaction', self._state, 'show-parameter', parameter.value),
                 reset_path='interaction.parameters/reset',
                 back_path=f'interaction.parameters/start',
-                text_menu=texts.TEXT_SHOW_GROUP_PARAMETERS
+                text_menu=texts.TEXT_SHOW_GROUP_PARAMETERS,
+                additional_keyboard=buttons.PARAMETERS_ADDITIONAL_KEYBOARD
                 )
 
         elif event.startswith('show-parameter'):

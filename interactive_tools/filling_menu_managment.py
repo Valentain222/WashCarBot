@@ -2,8 +2,6 @@ from data_management import FillingManager
 
 from constants import texts, constants, buttons, error_types
 
-from menu_hanlders import menu_context, MenuEventHandler
-
 from datetime import date
 
 from containers.bot_containers import MessageConfig, StateUserContainer, ButtonSettings
@@ -11,8 +9,9 @@ from containers.bot_containers import MessageConfig, StateUserContainer, ButtonS
 
 class FillingInputs:
     def __init__(self, filling_container: FillingManager, state_user: StateUserContainer,
-                 menu_handler: MenuEventHandler, main_path: str, slider_message: MessageConfig = None,
-                 input_int_message: MessageConfig = None):
+                 menu_handler, main_path: str, slider_message: MessageConfig = None,
+                 input_int_message: MessageConfig = None,
+                 input_str_message: MessageConfig = None):
         self._filling_container = filling_container
         self._state_user = state_user
         self._menu_handler = menu_handler
@@ -20,6 +19,7 @@ class FillingInputs:
         self._SLIDER_MESSAGE = slider_message
         self._INPUT_INT_MESSAGE = input_int_message
         self._MAIN_PATH = main_path
+        self._INPUT_STR_MESSAGE = input_str_message
 
         self._INPUTS_HANDLERS = {
             'int': self.__input_int,
@@ -47,19 +47,22 @@ class FillingInputs:
     def set_input_int_message(self, input_int_message: MessageConfig):
         self._INPUT_INT_MESSAGE = input_int_message
 
+    def __input_str(self, state: str, event: str):
+        if self._INPUT_INT_MESSAGE is None:
+            raise error_types.CleanData('Input str message')
+        self._state_user.update_state(f'filling str:{state}')
+
+        return self._INPUT_STR_MESSAGE
+
     def __input_int(self, state: str, event: str) -> MessageConfig:
         if self._INPUT_INT_MESSAGE is None:
             raise error_types.CleanData('Input message')
-        print(state)
         self._state_user.update_state(f'filling int:{state}')
 
         return self._INPUT_INT_MESSAGE
 
     def __input_menu(self, state: str, event: str) -> MessageConfig:
-        menu_context.set_strategy(self._menu_handler)
-
-        menu_context.set_state(state)
-        return menu_context.event_handler(event)
+        return self._menu_handler.event_handler(event)
 
     def __input_slider(self, state: str, event: str) -> MessageConfig:
         if self._SLIDER_MESSAGE is None:

@@ -1,8 +1,7 @@
-from containers import MessageConfig, ButtonSettings, CallBackData
+from . import buttons, constants, functions, texts
+from containers.bot_containers import MessageConfig, ButtonSettings, CallBackData
+
 create_callback = CallBackData.creating_callback
-
-from . import texts, buttons, constants, functions
-
 
 BLACK_USER = MessageConfig(text_message='Извините, вы в черном списке')
 
@@ -11,6 +10,12 @@ SUCCESSFUL_SAVE_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constant
                                         row_buttons=1,
                                         text_message=texts.SUCCESSFUL_SAVING_TEXT,
                                         parse_mode=constants.PARSE_MODE1)
+SUCCESSFUL_NEW_PARAMETER = MessageConfig(button_settings=(ButtonSettings(
+    create_callback('interaction', 'parameters', 'start'), 'Обратно'),),
+                                         text_message='Параметер добавлен!')
+INPUT_PARAMETER = MessageConfig(button_settings=(ButtonSettings(create_callback('interaction', 'parameters', 'start'),
+                                                                buttons.BACK_TEXT),),
+                                text_message='Введите новый параметер:')
 SUCCESSFUL_SEND_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU,
                                                                         'Заполнить еще 🔄'),
                                                          buttons.BACK_MAIN_MENU),
@@ -104,3 +109,17 @@ RATING_SLIDER = MessageConfig(
 )
 
 LOADING_MESSAGE = MessageConfig(text_message='Загружаю ⏳')
+IS_CLEANING_BLACK_LIST = MessageConfig(text_message='Вы уверены, что хотите сбросить черный список?',
+                                       button_settings=(ButtonSettings(create_callback('interaction', 'black_list',
+                                                                                       'start', 'reset_black_list'),
+                                                                       'Да'),
+                                                        ButtonSettings(create_callback('interaction', 'black_list',
+                                                                                       'start'),
+                                                                       'Нет, вернуться обратно.')))
+IS_RESET_PATAMETERS = MessageConfig(text_message='Вы уверены, что хотите сбросить параметры?',
+                                    button_settings=(ButtonSettings(
+                                        create_callback('interaction', 'parameters', 'start', 'reset_parameters'),
+                                        'Да'),
+                                                     ButtonSettings(create_callback(
+                                                         'interaction', 'parameters', 'statr'),
+                                                     'Нет, вернуться обратно.')))

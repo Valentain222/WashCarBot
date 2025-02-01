@@ -1,4 +1,4 @@
-from containers import ButtonSettings
+from containers.bot_containers import ButtonSettings
 
 
 def make_slider(state: str, len_slider: range) -> tuple[ButtonSettings, ...]:

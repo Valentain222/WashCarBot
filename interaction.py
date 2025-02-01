@@ -2,7 +2,6 @@ from abc import abstractmethod, ABC
 
 from constants import messages, constants, texts, buttons
 from containers.bot_containers import MessageConfig, CallBackData, StateUserContainer, ButtonSettings
-from filling_inputs import FillingInputs
 from menu_hanlders import FillingEventHandler, EditPasswordEventHandler, BlackListEventHandler, \
     ParametersEditEventHandler, MenuContext
 from sq_functions import SQliteTools
@@ -10,20 +9,23 @@ from data_management import FillingManager
 from json_storage import JsonDictsHandler
 
 from visual import Visual
-from bot_tools import PhotoManager, MenuManager
+from interactive_tools import PhotoManager, MenuManager, FillingInputs
 
 from data_management import SettingsManager, BlackListManager
 
 
-class FillingInputsMethods:
+class InputsMethods:
     def date_input(self, parameter: str, text_message: str) -> MessageConfig:
         raise ValueError('the strategy does not use the interaction filling!')
 
     def int_input(self, parameter: str, text_message: str) -> MessageConfig:
         raise ValueError('the strategy does not use the interaction filling!')
 
+    def str_input(self, parameter: str, text_message: str) -> MessageConfig:
+        raise ValueError('the strategy does not use the interaction filling!')
 
-class InteractionFilling(FillingInputsMethods):
+
+class InteractionFilling(InputsMethods):
     def __init__(self, filling_state: FillingManager, state_user: StateUserContainer):
         self.__filling_state = filling_state
         self.__state_user = state_user
@@ -64,8 +66,13 @@ class InteractionFilling(FillingInputsMethods):
 
         return response_message
 
+    def str_input(self, parameter: str, text_message: str) -> MessageConfig:
+        self._save_filling_data(text_message, parameter)
 
-class InteractionHandler(FillingInputsMethods, ABC):
+        return messages.SUCCESSFUL_SAVE_MESSAGE
+
+
+class InteractionHandler(InputsMethods, ABC):
     def __init__(self, state_user: StateUserContainer):
         self._state_user = state_user
 
@@ -106,6 +113,7 @@ class DataOperatorInteraction(InteractionFilling, InteractionHandler):
             response_message = self._filling_menu()
 
         elif callback.state in self._operator_inputs:
+            self._menu.set_state(callback.state)
             response_message = self._operator_inputs.filling_interaction(callback.state, callback.event)
 
         elif callback.state == 'send':
@@ -186,6 +194,7 @@ class AdminInteraction(InteractionHandler):
     def __init__(self, state_user: StateUserContainer, menu_context: MenuContext, menu: MenuManager,
                  sql_tools: SQliteTools, ):
         super().__init__(state_user)
+        self._sql_tools = sql_tools
 
         self._menu_context = menu_context
 
@@ -193,11 +202,31 @@ class AdminInteraction(InteractionHandler):
         self.black_list = BlackListManager()
         self.parameters = SettingsManager()
 
+        self._str_strategy: str = ''
+
         self.STRATEGY_MENU_ADMIN_HANDLERS = {
             'passwords': EditPasswordEventHandler(menu, sql_tools, self._passwords, state_user),
             'black_list': BlackListEventHandler(menu, sql_tools, self.black_list),
-            'parameters': ParametersEditEventHandler(menu, sql_tools, self.parameters)
+            'parameters': ParametersEditEventHandler(state_user, menu, sql_tools, self.parameters)
         }
+
+        self.STR_INPUTS = {
+            'input password': self.__input_password,
+            'parameter': self.__input_new_parameter
+        }
+
+    def __input_password(self, parameter: str, text_message: str) -> MessageConfig:
+        self._sql_tools.save_password(self._passwords.remember_key, text_message)
+        return messages.SAVE_PASSWORD
+
+    def __input_new_parameter(self, parameter: str, text_message: str) -> MessageConfig:
+        self._sql_tools.add_parameter(text_message)
+        return messages.SUCCESSFUL_NEW_PARAMETER
+
+    def str_input(self, parameter: str, text_message: str) -> MessageConfig:
+        str_input_def = self.STR_INPUTS.get(parameter)
+
+        return str_input_def(parameter, text_message)
 
     async def interaction(self, callback: CallBackData) -> MessageConfig:
         response_message = MessageConfig()
@@ -209,6 +238,7 @@ class AdminInteraction(InteractionHandler):
             handler_strategy = self.STRATEGY_MENU_ADMIN_HANDLERS.get(callback.state)
 
             self._menu_context.set_strategy(handler_strategy)
+            self._str_strategy = callback.state
 
             self._menu_context.set_state(callback.state)
             response_message = self._menu_context.event_handler(callback.event)
@@ -238,6 +268,9 @@ class InteractionContext:
 
     def date_filling(self, parameter: str, text_message: str) -> MessageConfig:
         return self._strategy_interaction.date_input(parameter, text_message)
+
+    def str_filling(self, parameter: str, text_message: str) -> MessageConfig:
+        return self._strategy_interaction.str_input(parameter, text_message)
 
     def __eq__(self, other):
         return other is self._strategy_interaction
