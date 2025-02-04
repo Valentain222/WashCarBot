@@ -1,15 +1,16 @@
 from abc import abstractmethod, ABC
+from datetime import date
 
-from constants import messages, constants, texts, buttons
+from constants import messages, constants, texts, buttons, error_types
 from containers.bot_containers import MessageConfig, CallBackData, StateUserContainer, ButtonSettings
 from menu_hanlders import FillingEventHandler, EditPasswordEventHandler, BlackListEventHandler, \
-    ParametersEditEventHandler, MenuContext
+    ParametersEditEventHandler, MenuContext, MenuEventHandler
 from sq_functions import SQliteTools
 from data_management import FillingManager
 from json_storage import JsonDictsHandler
 
 from visual import Visual
-from interactive_tools import PhotoManager, MenuManager, FillingInputs
+from interactive_tools import PhotoManager, MenuManager
 
 from data_management import SettingsManager, BlackListManager
 
@@ -25,30 +26,123 @@ class InputsMethods:
         raise ValueError('the strategy does not use the interaction filling!')
 
 
-class InteractionFilling(InputsMethods):
-    def __init__(self, filling_state: FillingManager, state_user: StateUserContainer):
-        self.__filling_state = filling_state
-        self.__state_user = state_user
+class InputHandler(InputsMethods):
+    def __init__(self, state_user: StateUserContainer, filling_container: FillingManager, exit_path: str,
+                 menu_handler: MenuEventHandler = None, slider_message: MessageConfig = None,
+                 input_int_message: MessageConfig = None, input_str_message: MessageConfig = None):
+        self._state_user = state_user
+        self._filling_container = filling_container
+
+        self._menu_handler = menu_handler
+        self._SLIDER_MESSAGE = slider_message
+        self._INPUT_INT_MESSAGE = input_int_message
+        self._MAIN_PATH = exit_path
+        self._INPUT_STR_MESSAGE = input_str_message
+
+        self._INPUTS_HANDLERS = {
+            'int': self.__input_int,
+            'menu': self.__input_menu,
+            'slider': self.__input_slider,
+            'date': self.__input_date
+        }
+
+    def _save_filling_data(self, value: any, name: str) -> MessageConfig:
+        self._filling_container.add_value(name, value)
+
+        return MessageConfig(button_settings=(ButtonSettings(self._MAIN_PATH, buttons.SUCCESSFUL_SAVING_TEXT),),
+                             row_buttons=1,
+                             text_message=texts.SUCCESSFUL_SAVING_TEXT,
+                             parse_mode=constants.PARSE_MODE1)
+
+    def input_handler(self, state, event) -> MessageConfig:
+        type_input = self._filling_container.data.get(state).type_input
+
+        handler = self._INPUTS_HANDLERS.get(type_input, False)
+
+        if not handler:
+            raise error_types.InvalidError('input type', type_input, ', '.join(self._INPUTS_HANDLERS.keys()))
+
+        return handler(state, event)
+
+    def __input_str(self, state: str, event: str):
+        if self._INPUT_INT_MESSAGE is None:
+            raise error_types.CleanData('Input str message')
+        self._state_user.update_state(f'filling str:{state}')
+
+        return self._INPUT_STR_MESSAGE
+
+    def __input_int(self, state: str, event: str) -> MessageConfig:
+        if self._INPUT_INT_MESSAGE is None:
+            raise error_types.CleanData('Input message')
+        self._state_user.update_state(f'filling int:{state}')
+
+        return self._INPUT_INT_MESSAGE
+
+    def __input_menu(self, state: str, event: str) -> MessageConfig:
+        return self._menu_handler.event_handler(event)
+
+    def __input_slider(self, state: str, event: str) -> MessageConfig:
+        if self._SLIDER_MESSAGE is None:
+            raise error_types.CleanData('Slider message', 'None')
+
+        if 'save' in event:
+            value = event[-1]
+            response_message = self._save_filling_data(value, state)
+        else:
+            response_message = self._SLIDER_MESSAGE
+
+        return response_message
+
+    def __input_date(self, state: str, event: str) -> MessageConfig:
+        if event:
+            if event == 'auto':
+                # Today date
+
+                input_date = date.today()
+                response_message = self._save_filling_data(input_date, state)
+
+            elif event == 'manual':
+                # Input date
+
+                self._state_user.update_state(f'filling date:{state}')
+                response_message = self.__manual_input_date(state)
+            else:
+                raise error_types.WrongEvent(event)
+        else:
+            # Make selection menu
+            response_message = self.__main_input_date_menu(state)
+
+        return response_message
+
+    def __main_input_date_menu(self, state) -> MessageConfig:
+        return MessageConfig(button_settings=(
+            ButtonSettings(f"interaction.{state}/manual", buttons.DATE_MANUAL_INPUT_TEXT),
+            ButtonSettings(f"interaction.{state}/auto", buttons.DATE_AUTO_INPUT_TEXT),
+            ButtonSettings(self._MAIN_PATH, buttons.BACK_TEXT)),
+            row_buttons=1,
+            text_message=texts.MAIN_INPUT_DATE_TEXT,
+            parse_mode=constants.PARSE_MODE1)
+
+    def __manual_input_date(self, state) -> MessageConfig:
+        return MessageConfig(button_settings=(ButtonSettings(f'interaction.{state}', buttons.BACK_TEXT),),
+                             row_buttons=1,
+                             text_message=texts.MANUAL_INPUT_DATE_TEXT,
+                             parse_mode=constants.PARSE_MODE1)
 
     def _make_menu(self) -> MessageConfig:
         return MessageConfig()
 
     def _filling_menu(self) -> MessageConfig:
-        self.__state_user.update_state('not_input')
+        self._state_user.update_state('not_input')
         return self._make_menu()
 
     def _keyboard_filling(self, is_status=True) -> list[ButtonSettings, ...]:
         b_setting = []
-        for new_callback, container in self.__filling_state.data.items():
+        for new_callback, container in self._filling_container.data.items():
             b_setting.append(ButtonSettings(CallBackData.creating_callback('interaction', new_callback),
                                             f'{container.name} {container.status if is_status else ""}'))
 
         return b_setting
-
-    def _save_filling_data(self, value: any, name: str):
-        self.__filling_state.add_value(name, value)
-
-        return messages.SUCCESSFUL_SAVE_MESSAGE
 
     def date_input(self, parameter: str, text_message: str) -> MessageConfig:
         if constants.DATE_PATTERN.fullmatch(text_message):
@@ -81,21 +175,23 @@ class InteractionHandler(InputsMethods, ABC):
         pass
 
 
-class DataOperatorInteraction(InteractionFilling, InteractionHandler):
+class DataOperatorInteraction(InputHandler, InteractionHandler):
     def __init__(self, state_user: StateUserContainer, menu: MenuManager,
                  sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
         self._filling_state = FillingManager(constants.FILLING_OPERATOR_MENU)
 
-        InteractionFilling.__init__(self, self._filling_state, state_user)
+        self._menu = FillingEventHandler(menu, sql_tools, self._filling_state, parameters_json,
+                                         f'{constants.INTERACTION_MAIN_MENU}||group_exit')
+        InputHandler.__init__(self,
+                              state_user,
+                              self._filling_state,
+                              constants.INTERACTION_MAIN_MENU, self._menu,
+                              messages.RATING_SLIDER,
+                              messages.DATA_OPERATOR_INPUT_PROMPTS
+                              )
         InteractionHandler.__init__(self, state_user)
 
         self._sql_tools = sql_tools
-
-        self._menu = FillingEventHandler(menu, sql_tools, self._filling_state, parameters_json,
-                                         f'{constants.INTERACTION_MAIN_MENU}||group_exit')
-        self._operator_inputs = FillingInputs(self._filling_state, self._state_user, self._menu,
-                                              constants.INTERACTION_MAIN_MENU, messages.RATING_SLIDER,
-                                              messages.DATA_OPERATOR_INPUT_PROMPTS)
 
     def _make_menu(self) -> MessageConfig:
         text_message = texts.TEXT_DATA_OPERATOR_MAIN_MENU
@@ -112,9 +208,9 @@ class DataOperatorInteraction(InteractionFilling, InteractionHandler):
             # Making main operators menu
             response_message = self._filling_menu()
 
-        elif callback.state in self._operator_inputs:
+        elif callback.state in self._filling_state.data.keys():
             self._menu.set_state(callback.state)
-            response_message = self._operator_inputs.filling_interaction(callback.state, callback.event)
+            response_message = self.input_handler(callback.state, callback.event)
 
         elif callback.state == 'send':
             is_filled = self._filling_state.is_filled
@@ -137,22 +233,19 @@ class DataOperatorInteraction(InteractionFilling, InteractionHandler):
         return response_message
 
 
-class AnalystInteraction(InteractionFilling, InteractionHandler):
+class AnalystInteraction(InputHandler, InteractionHandler):
     def __init__(self, state_user: StateUserContainer, visual: Visual, photos_manager: PhotoManager, menu: MenuManager,
                  sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
         self._filling_state = FillingManager(constants.FILLING_ANALYST_MENU)
 
-        InteractionFilling.__init__(self, self._filling_state, state_user)
+        self.analyst_setting_menu = FillingEventHandler(menu, sql_tools, self._filling_state,
+                                                        parameters_json, 'interaction.edit/group_exit')
+        InputHandler.__init__(self,  state_user, self._filling_state,
+                              'interaction.edit', self.analyst_setting_menu, messages.CAPACITY_SLIDER)
         InteractionHandler.__init__(self, state_user)
 
         self.visual = visual
         self.photos = photos_manager
-
-        self.analyst_setting_menu = FillingEventHandler(menu, sql_tools, self._filling_state,
-                                                        parameters_json, 'interaction.edit/group_exit')
-
-        self.analyst_inputs = FillingInputs(self._filling_state, state_user, self.analyst_setting_menu,
-                                            'interaction.edit', messages.CAPACITY_SLIDER)
 
     def _make_menu(self) -> MessageConfig:
         button_settings = self._keyboard_filling(is_status=False)
@@ -181,8 +274,8 @@ class AnalystInteraction(InteractionFilling, InteractionHandler):
         elif callback.state == 'edit':
             response_message = self._filling_menu()
 
-        elif callback.state in self.analyst_inputs:
-            response_message = self.analyst_inputs.filling_interaction(callback.state, callback.event)
+        elif callback.state in self._filling_state.data.keys():
+            response_message = self.input_handler(callback.state, callback.event)
 
         else:
             raise ValueError(f'Wrong state: {callback.state}!')
@@ -226,6 +319,10 @@ class AdminInteraction(InteractionHandler):
     def str_input(self, parameter: str, text_message: str) -> MessageConfig:
         str_input_def = self.STR_INPUTS.get(parameter)
 
+        if str_input_def is None:
+            raise ValueError(f'Wrong parameter {parameter}!')
+
+        # noinspection PyArgumentList
         return str_input_def(parameter, text_message)
 
     async def interaction(self, callback: CallBackData) -> MessageConfig:

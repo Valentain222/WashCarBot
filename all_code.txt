@@ -1,0 +1,3325 @@
+Directory: C:\MyBot
+
+File: C:\MyBot\.env
+
+File: C:\MyBot\all_code.txt
+
+File: C:\MyBot\all_project2text.py
+Content:
+import os
+
+
+def main():
+    with open('all_code.txt', 'w', encoding='utf-8') as f:
+        for root, dirs, files in os.walk('C:\MyBot'):
+            f.write(f"Directory: {root}\n")
+
+            for file in files:
+                file_path = os.path.join(root, file)
+                f.write(f"\nFile: {file_path}\n")
+
+                if file.endswith('.py'):
+                    with open(file_path, 'r', encoding='utf-8') as code_file:
+                        f.write("Content:\n")
+                        f.write(code_file.read())
+                        f.write("\n" + "=" * 80 + "\n")
+
+
+if __name__  == '__main__':
+    main()
+================================================================================
+
+File: C:\MyBot\Data_Base.db
+
+File: C:\MyBot\data_management.py
+Content:
+from containers.data_containers import ContainerData, BlackUserContainer, FillingContainerData
+
+from constants import error_types, errors
+
+
+# Base Managers
+
+class DataManager:
+    def __init__(self, data: dict):
+        self._data = data
+
+    def __bool__(self):
+        return len(self._data)
+
+    @property
+    def data(self) -> dict:
+        return self._data
+
+    def truth_container_name(self, key: str) -> None:
+        if key not in self._data.keys():
+            raise error_types.InvalidError('key', key, self._data.keys())
+
+    def get_data(self, key: str) -> dict:
+        self.truth_container_name(key)
+
+        return self._data.get(key)
+
+    def get_key(self, index: int) -> str:
+        if index > len(self._data.keys())-1:
+            raise errors.OUT_INDEX
+
+        return list(self._data.keys())[index]
+
+    def update_data(self, new_data: any) -> None:
+        self._data = new_data
+
+    def reset(self):
+        pass
+
+
+# Modes for DataManager
+
+class Mode:
+    def __init__(self, data_manager: DataManager):
+        self._data_manager = data_manager
+
+
+class StorageDataManager(Mode):
+    def __init__(self, data_manager: DataManager):
+        super().__init__(data_manager)
+
+        self._remember_key: str = ''
+        self._remember_data = None
+
+    @property
+    def remember_key(self) -> str:
+        return self._remember_key
+
+    @property
+    def remember_data(self) -> any:
+        return self._remember_data
+
+    def remembered_data(self, key: str) -> dict:
+        if self._data_manager.data:
+            self._data_manager.truth_container_name(key)
+            self._remember_data, self._remember_key = self._data_manager.data.get(key), key
+
+            return self._data_manager.data
+
+        return {}
+
+
+class ContainerDataManager(Mode):
+    def __init__(self, manager: DataManager):
+        super().__init__(manager)
+
+    @property
+    def is_filled(self) -> bool:
+        for container in self._data_manager.data.values():
+            value = container.value
+            if not value:
+                return False
+        return True
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(value.name for value in self._data_manager.data.values())
+
+    def add_value(self, name_container: str, value: any):
+        self._data_manager.truth_container_name(name_container)
+        self._data_manager.data[name_container].new_value(value)
+
+    def value(self, name_container: str) -> any:
+        self._data_manager.truth_container_name(name_container)
+
+        return self._data_manager.data.get(name_container).value
+
+
+# Manual managers
+
+class FillingManager(DataManager, ContainerDataManager):
+    def __init__(self, filling_parameters: dict[str: FillingContainerData, ...]):
+        DataManager.__init__(self, filling_parameters)
+
+        ContainerDataManager.__init__(self, self)
+
+    def __str__(self):
+        state = (f'{key}: {value}' for key, value in self._data.items())
+        return '\n'.join(state)
+
+    def type_input(self, name_container: str) -> str:
+        self._data_manager.truth_container_name(name_container)
+
+        return self._data.get(name_container).type_input
+
+
+class SettingsManager(DataManager, StorageDataManager, ContainerDataManager):
+    def __init__(self, data: dict[str: ContainerData] = None):
+        if data is None:
+            data = {}
+        DataManager.__init__(self, data)
+
+        ContainerDataManager.__init__(self, self)
+        StorageDataManager.__init__(self, self)
+
+
+class BlackListManager:
+    def __init__(self):
+        self._users: tuple[BlackUserContainer, ...] = ()
+        self._user = None
+
+    def update_users(self, users: tuple[BlackUserContainer, ...]):
+        self._users = users
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(user.initial_user for user in self._users)
+
+    def remember_user(self, index):
+        if index > len(self._users)-1:
+            raise error_types.InvalidError('index', index, f'index > {len(self._users)-1}')
+        self._user = self._users[index]
+
+        return self._user
+
+    @property
+    def string_data_remember_user(self) -> str:
+        return f'Имя: {self._user.name},\n' if self._user.namee else '' + (f'Тэг: {self._user.tag},\n'
+                                                                           if self._user.tag else '') \
+                                                                     + (f'ID: {self._user.id},'
+                                                                        f'\nДата блокировки: {self._user.date}')
+
+    @property
+    def remembered_user(self) -> BlackUserContainer:
+        return self._user
+
+================================================================================
+
+File: C:\MyBot\interaction.py
+Content:
+from abc import abstractmethod, ABC
+
+from constants import messages, constants, texts, buttons
+from containers.bot_containers import MessageConfig, CallBackData, StateUserContainer, ButtonSettings
+from filling_inputs import FillingInputs
+from menu_hanlders import FillingEventHandler, EditPasswordEventHandler, BlackListEventHandler, \
+    ParametersEditEventHandler, MenuContext
+from sq_functions import SQliteTools
+from data_management import FillingManager
+from json_storage import JsonDictsHandler
+
+from visual import Visual
+from bot_tools import PhotoManager, MenuManager
+
+from data_management import SettingsManager, BlackListManager
+
+
+class FillingInputsMethods:
+    def date_input(self, parameter: str, text_message: str) -> MessageConfig:
+        raise ValueError('the strategy does not use the interaction filling!')
+
+    def int_input(self, parameter: str, text_message: str) -> MessageConfig:
+        raise ValueError('the strategy does not use the interaction filling!')
+
+
+class InteractionFilling(FillingInputsMethods):
+    def __init__(self, filling_state: FillingManager, state_user: StateUserContainer):
+        self.__filling_state = filling_state
+        self.__state_user = state_user
+
+    def _make_menu(self) -> MessageConfig:
+        return MessageConfig()
+
+    def _filling_menu(self) -> MessageConfig:
+        self.__state_user.update_state('not_input')
+        return self._make_menu()
+
+    def _keyboard_filling(self, is_status=True) -> list[ButtonSettings, ...]:
+        b_setting = []
+        for new_callback, container in self.__filling_state.data.items():
+            b_setting.append(ButtonSettings(CallBackData.creating_callback('interaction', new_callback),
+                                            f'{container.name} {container.status if is_status else ""}'))
+
+        return b_setting
+
+    def _save_filling_data(self, value: any, name: str):
+        self.__filling_state.add_value(name, value)
+
+        return messages.SUCCESSFUL_SAVE_MESSAGE
+
+    def date_input(self, parameter: str, text_message: str) -> MessageConfig:
+        if constants.DATE_PATTERN.fullmatch(text_message):
+            response_message = self._save_filling_data(text_message, parameter)
+        else:
+            response_message = messages.WRONG_INPUT_DATE_MESSAGE
+
+        return response_message
+
+    def int_input(self, parameter: str, text_message: str) -> MessageConfig:
+        if text_message.isdigit():
+            response_message = self._save_filling_data(text_message, parameter)
+        else:
+            response_message = messages.WRONG_INPUT_PROMPTS_MESSAGE
+
+        return response_message
+
+
+class InteractionHandler(FillingInputsMethods, ABC):
+    def __init__(self, state_user: StateUserContainer):
+        self._state_user = state_user
+
+    @abstractmethod
+    async def interaction(self, callback: CallBackData) -> MessageConfig:
+        pass
+
+
+class DataOperatorInteraction(InteractionFilling, InteractionHandler):
+    def __init__(self, state_user: StateUserContainer, menu: MenuManager,
+                 sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
+        self._filling_state = FillingManager(constants.FILLING_OPERATOR_MENU)
+
+        InteractionFilling.__init__(self, self._filling_state, state_user)
+        InteractionHandler.__init__(self, state_user)
+
+        self._sql_tools = sql_tools
+
+        self._menu = FillingEventHandler(menu, sql_tools, self._filling_state, parameters_json,
+                                         f'{constants.INTERACTION_MAIN_MENU}||group_exit')
+        self._operator_inputs = FillingInputs(self._filling_state, self._state_user, self._menu,
+                                              constants.INTERACTION_MAIN_MENU, messages.RATING_SLIDER,
+                                              messages.DATA_OPERATOR_INPUT_PROMPTS)
+
+    def _make_menu(self) -> MessageConfig:
+        text_message = texts.TEXT_DATA_OPERATOR_MAIN_MENU
+        b_setting = self._keyboard_filling()
+        b_setting.append(ButtonSettings('interaction.send', buttons.SEND))
+
+        return MessageConfig(button_settings=(tuple(b_setting), (buttons.BACK_MAIN_MENU,)), row_buttons=(2, 1),
+                             text_message=text_message, parse_mode=constants.PARSE_MODE1)
+
+    async def interaction(self, callback: CallBackData) -> MessageConfig:
+        response_message = None
+
+        if callback.state == 'main':
+            # Making main operators menu
+            response_message = self._filling_menu()
+
+        elif callback.state in self._operator_inputs:
+            response_message = self._operator_inputs.filling_interaction(callback.state, callback.event)
+
+        elif callback.state == 'send':
+            is_filled = self._filling_state.is_filled
+            if is_filled:
+                data = self._filling_state.data
+
+                try:
+                    self._sql_tools.save_data(data)
+                except ValueError as e:
+                    print(e)
+                self._filling_state.reset()
+
+                response_message = messages.SUCCESSFUL_SEND_MESSAGE
+            else:
+                response_message = messages.DATA_OPERATOR_FILLED_FAILURE
+
+        else:
+            raise ValueError('Wrong State!!')
+
+        return response_message
+
+
+class AnalystInteraction(InteractionFilling, InteractionHandler):
+    def __init__(self, state_user: StateUserContainer, visual: Visual, photos_manager: PhotoManager, menu: MenuManager,
+                 sql_tools: SQliteTools, parameters_json: JsonDictsHandler):
+        self._filling_state = FillingManager(constants.FILLING_ANALYST_MENU)
+
+        InteractionFilling.__init__(self, self._filling_state, state_user)
+        InteractionHandler.__init__(self, state_user)
+
+        self.visual = visual
+        self.photos = photos_manager
+
+        self.analyst_setting_menu = FillingEventHandler(menu, sql_tools, self._filling_state,
+                                                        parameters_json, 'interaction.edit/group_exit')
+
+        self.analyst_inputs = FillingInputs(self._filling_state, state_user, self.analyst_setting_menu,
+                                            'interaction.edit', messages.CAPACITY_SLIDER)
+
+    def _make_menu(self) -> MessageConfig:
+        button_settings = self._keyboard_filling(is_status=False)
+
+        return MessageConfig(button_settings=(tuple(button_settings),
+                                              (ButtonSettings(constants.INTERACTION_MAIN_MENU,
+                                                              buttons.BACK_TEXT),)),
+                             row_buttons=(2, 1),
+                             text_message=texts.TEXT_ANALYST_SETTINGS_MENU)
+
+    async def interaction(self, callback: CallBackData) -> MessageConfig:
+        response_message: MessageConfig = MessageConfig()
+
+        if callback.state == 'main':
+            response_message = messages.ANALYST_MAIN_MENU
+
+        elif callback.state == 'open':
+            self.visual.set_settings(self._filling_state)
+            self.photos.photos.set_paths(self.visual.generate_plots())
+            await self.photos.send_photos()
+
+            response_message = MessageConfig(text_message=texts.ANALYST_OPEN_STATIC,
+                                             button_settings=buttons.PLOTS_MENU_BUTTON,
+                                             row_buttons=1)
+
+        elif callback.state == 'edit':
+            response_message = self._filling_menu()
+
+        elif callback.state in self.analyst_inputs:
+            response_message = self.analyst_inputs.filling_interaction(callback.state, callback.event)
+
+        else:
+            raise ValueError(f'Wrong state: {callback.state}!')
+
+        return response_message
+
+
+class AdminInteraction(InteractionHandler):
+    def __init__(self, state_user: StateUserContainer, menu_context: MenuContext, menu: MenuManager,
+                 sql_tools: SQliteTools, ):
+        super().__init__(state_user)
+
+        self._menu_context = menu_context
+
+        self._passwords = SettingsManager()
+        self.black_list = BlackListManager()
+        self.parameters = SettingsManager()
+
+        self.STRATEGY_MENU_ADMIN_HANDLERS = {
+            'passwords': EditPasswordEventHandler(menu, sql_tools, self._passwords, state_user),
+            'black_list': BlackListEventHandler(menu, sql_tools, self.black_list),
+            'parameters': ParametersEditEventHandler(menu, sql_tools, self.parameters)
+        }
+
+    async def interaction(self, callback: CallBackData) -> MessageConfig:
+        response_message = MessageConfig()
+
+        if callback.state == 'main':
+            response_message = messages.ADMIN_MENU
+
+        elif callback.state in self.STRATEGY_MENU_ADMIN_HANDLERS.keys():
+            handler_strategy = self.STRATEGY_MENU_ADMIN_HANDLERS.get(callback.state)
+
+            self._menu_context.set_strategy(handler_strategy)
+
+            self._menu_context.set_state(callback.state)
+            response_message = self._menu_context.event_handler(callback.event)
+
+        else:
+            raise ValueError(f'Wrong state {callback.state}!')
+
+        return response_message
+
+    @property
+    def passwords(self):
+        return self._passwords
+
+
+class InteractionContext:
+    def __init__(self):
+        self._strategy_interaction: InteractionHandler | None = None
+
+    def set_interaction_strategy(self, new_strategy: InteractionHandler):
+        self._strategy_interaction = new_strategy
+
+    async def interaction_handler(self, callback: CallBackData) -> MessageConfig:
+        return await self._strategy_interaction.interaction(callback)
+
+    def int_filling(self, parameter: str, text_message: str) -> MessageConfig:
+        return self._strategy_interaction.int_input(parameter, text_message)
+
+    def date_filling(self, parameter: str, text_message: str) -> MessageConfig:
+        return self._strategy_interaction.date_input(parameter, text_message)
+
+    def __eq__(self, other):
+        return other is self._strategy_interaction
+
+================================================================================
+
+File: C:\MyBot\json_storage.py
+Content:
+import json
+from constants import error_types
+
+
+class JsonDataHandler:
+    def __init__(self, file):
+
+        self._file_name = file
+        self._data = None
+
+        self._get_data()
+
+    def _get_data(self):
+        with open(self._file_name, 'r', encoding='utf-8') as json_file:
+            self._data = json.load(json_file)
+
+    def _convert_to_serializable(self, value):
+        if isinstance(value, tuple):
+            return list(value)
+        elif isinstance(value, dict):
+            return {k: self._convert_to_serializable(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [self._convert_to_serializable(v) for v in value]
+        elif isinstance(value, object) and value.__class__.__module__ != 'builtins':
+            raise error_types.WrongType(str(type(value)))
+
+        return value
+
+    def update_data(self, name: str, value: any):
+        value = self._convert_to_serializable(value)
+        self._data[name] = value
+
+        with open(self._file_name, 'w') as json_file:
+            json.dump(self._data, json_file)
+
+
+class JsonDictsHandler(JsonDataHandler):
+    def __init__(self, file: str):
+        super().__init__(file)
+
+    def __validate_key(self, key):
+        if key not in self._data:
+            raise error_types.InvalidError('key', key, tuple(self._data.keys()))
+
+    def get_value(self, name: str):
+        self._get_data()
+        self.__validate_key(name)
+
+        return self._data.get(name)
+
+    def update_dict(self, name: str, value: any):
+        self.__validate_key(name)
+
+        self.update_data(name, value)
+
+================================================================================
+
+File: C:\MyBot\main.py
+Content:
+from aiogram import Dispatcher
+import asyncio
+
+from setups.bot_setup import bot
+
+from setups.router_setup import router
+
+dp = Dispatcher()
+dp.include_router(router)
+
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+================================================================================
+
+File: C:\MyBot\menu_hanlders.py
+Content:
+from bot_tools import MenuManager
+from sq_functions import SQliteTools
+from data_management import FillingManager, SettingsManager, BlackListManager
+
+from json_storage import JsonDictsHandler
+
+from abc import abstractmethod, ABC
+
+from containers.bot_containers import MessageConfig, StateUserContainer, ButtonSettings
+
+from constants import texts, buttons, messages, constants, error_types
+
+
+class MenuEventHandler(ABC):
+    def __init__(self, menu: MenuManager, sql_tools: SQliteTools):
+        self._menu = menu
+        self._sql_tools = sql_tools
+
+        self._state: str = ''
+
+    @abstractmethod
+    def event_handler(self, event: str) -> MessageConfig:
+        pass
+
+    def set_state(self, state: str):
+        self._state = state
+
+    def _reset_menu(self, reset_path: str) -> MessageConfig:
+        return self._menu.reset_menu(reset_path, buttons.OK, texts.END_RESET_TEXT)
+
+    def _send_menu(self, button_settings: tuple[ButtonSettings, ...],
+                   reset_path: str, back_path: str, text_menu: str,
+                   parse_mode: str | None = None,
+                   additional_keyboard: tuple[tuple[str, str], ...] | None = None) -> MessageConfig:
+        self._menu.make_menu_keyboard(button_settings=button_settings,
+                                      reset_path=reset_path,
+                                      back_path=back_path,
+                                      additional_keyboard=additional_keyboard)
+
+        return self._menu.send_menu(text_menu, parse_mode=parse_mode)
+
+    def _create_empty_data_message(self) -> MessageConfig:
+        return MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU, buttons.BACK_TEXT),),
+                             text_message=texts.NOTHING_FOUND,
+                             row_buttons=1)
+
+
+class FillingEventHandler(MenuEventHandler):
+    def __init__(self, menu: MenuManager, sql_tools: SQliteTools, filling_state: FillingManager,
+                 parameters: JsonDictsHandler, back_path: str):
+        super().__init__(menu, sql_tools)
+
+        self._filling_state = filling_state
+        self._parameters = parameters
+
+        self._back_path = back_path
+
+    def event_handler(self, event: str) -> MessageConfig:
+        RESET_PATH = f'interaction.{self._state}/reset'
+
+        if event == 'reset':
+            response_message = self._reset_menu(f'interaction.{self._state}')
+
+        elif event.startswith('add'):
+            data = self._filling_state.value(self._state)
+            if not isinstance(data, tuple):
+                data = (data,)
+
+            number_button = self._menu.number_button(event)
+            settings = self._menu.group_menu.button_setting(int(number_button))
+            new_value = (settings.text,)
+
+            self._filling_state.add_value(self._state, data + new_value)
+
+            response_message = messages.SUCCESSFUL_SAVE_MESSAGE
+
+        else:
+            # Start session
+
+            option = self._parameters.get_value(self._state)
+            button_settings = self._menu.menu_keyboard('interaction', self._state, 'add', option)
+
+            response_message = self._send_menu(button_settings, RESET_PATH, self._back_path, texts.TEXT_OPERATOR_MENU)
+
+        return response_message
+
+
+class EditPasswordEventHandler(MenuEventHandler):
+    def __init__(self, menu: MenuManager, sql_tools: SQliteTools, passwords: SettingsManager,
+                 state_user: StateUserContainer):
+        super().__init__(menu, sql_tools)
+
+        self._passwords = passwords
+        self._state_user = state_user
+
+    def event_handler(self, event: str) -> MessageConfig:
+        response_message = None
+
+        if event == 'start':
+            passwords = self._sql_tools.passwords()
+            if passwords:
+                self._passwords.update_data(passwords)
+                response_message = self._send_menu(
+                    self._menu.menu_keyboard('interaction', self._state, 'show', self._passwords.names),
+                    reset_path='interaction.passwords/reset',
+                    back_path='interaction.main||group_exit',
+                    text_menu=texts.TEXT_EDIT_PASSWORD_MENU,
+                    additional_keyboard=(buttons.RESET_PASSWORDS,)
+                    )
+            else:
+                response_message = self._create_empty_data_message()
+
+        elif event == 'reset_passwords':
+            pass
+
+        elif event == 'reset':
+            response_message = self._reset_menu('interaction.passwords/start')
+
+        elif event.startswith('show'):
+            number_button = self._menu.number_button(event)
+            index_password = self._menu.restore_menu_button(number_button)
+
+            self._passwords.remembered_data(self._passwords.get_key(index_password))
+
+            password_data = self._passwords.remember_data
+
+            response_message = MessageConfig(button_settings=(ButtonSettings('interaction.passwords/edit',
+                                                                             texts.EDIT_BUTTON_TEXT),
+                                                              ButtonSettings('interaction.passwords/start',
+                                                                             buttons.BACK_TEXT)),
+                                             text_message=f'Должность: {password_data.name}, '
+                                                          f'пароль: ||{password_data.value}||',
+                                             row_buttons=1,
+                                             parse_mode=constants.PARSE_MODE1
+                                             )
+        elif event.startswith('edit'):
+            self._state_user.update_state('input password')
+            response_message = messages.INPUT_NEW_PASSWORD
+
+        return response_message
+
+
+class BlackListEventHandler(MenuEventHandler):
+    def __init__(self, menu: MenuManager, sql_tools: SQliteTools, black_list: BlackListManager):
+        super().__init__(menu, sql_tools)
+
+        self._black_list = black_list
+
+    def event_handler(self, event: str) -> MessageConfig:
+        response_message = None
+
+        if event == 'start':
+            black_users = self._sql_tools.black_users()
+
+            if black_users:
+                self._black_list.update_users(black_users)
+                response_message = self._send_menu(
+                    self._menu.menu_keyboard('interaction', self._state, 'show', self._black_list.names),
+                    reset_path='interaction.black_list/reset',
+                    back_path='interaction.main||group_exit',
+                    text_menu=texts.TEXT_EDIT_BLACK_LIST_MENU,
+                    additional_keyboard=(buttons.RESET_BLACK_LIST,))
+            else:
+                response_message = self._create_empty_data_message()
+
+        elif event == 'reset':
+            response_message = self._reset_menu('interaction.black_list/start')
+
+        elif event == 'reset_table':
+            pass
+
+        elif event.startswith('show'):
+            number_button = self._menu.number_button(event)
+            index_user = self._menu.restore_menu_button(number_button)
+
+            self._black_list.remember_user(index_user)
+
+            response_message = MessageConfig(button_settings=(
+                ButtonSettings('interaction.black_list/delete', buttons.DELETE_FROM_BLACK_LIST_TEXT),
+                ButtonSettings('interaction.black_list/start', buttons.BACK_TEXT)),
+                text_message=self._black_list.string_data_remember_user,
+                row_buttons=1)
+
+        elif event == 'delete':
+            self._sql_tools.delete_user(self._black_list.remembered_user.id)
+
+            response_message = messages.SUCCESSFUL_DELETE_USER
+
+        return response_message
+
+
+class ParametersEditEventHandler(MenuEventHandler):
+    def __init__(self, menu: MenuManager, sq_tools: SQliteTools, parameters: SettingsManager):
+        super().__init__(menu, sq_tools)
+
+        self._parameters = parameters
+
+        self._number_button_group = None
+
+    def event_handler(self, event: str) -> MessageConfig:
+        response_message = None
+
+        if event == 'start':
+            parameters = self._sql_tools.parameters()
+            if parameters:
+                self._parameters.update_data(parameters)
+
+                response_message = self._send_menu(button_settings=self._menu.menu_keyboard('interaction', self._state,
+                                                                                            'show-group',
+                                                                                            self._parameters.names),
+                                                   reset_path='interaction.parameters/reset',
+                                                   back_path='interaction.main||group_exit',
+                                                   text_menu=texts.TEXT_EDIT_PARAMETERS,
+                                                   additional_keyboard=buttons.PARAMETERS_ADDITIONAL_KEYBOARD)
+            else:
+                response_message = self._create_empty_data_message()
+
+        elif event == 'reset':
+            response_message = self._reset_menu('interaction.parameters/start')
+
+        elif event == 'reset_par':
+            pass
+
+        elif event == 'add':
+            pass
+
+        elif event.startswith('show-group'):
+            self._number_button_group = self._menu.number_button(event)
+            index_group = self._menu.restore_menu_button(self._number_button_group)
+
+            self._parameters.remembered_data(self._parameters.get_key(index_group))
+            parameter = self._parameters.remember_data
+
+            response_message = self._send_menu(
+                self._menu.menu_keyboard('interaction', self._state, 'show-parameter', parameter.value),
+                reset_path='interaction.parameters/reset',
+                back_path=f'interaction.parameters/start',
+                text_menu=texts.TEXT_SHOW_GROUP_PARAMETERS
+                )
+
+        elif event.startswith('show-parameter'):
+            number_button = self._menu.number_button(event)
+            index_parameter = self._menu.restore_menu_button(number_button)
+
+            parameter = self._parameters.remember_data.value[index_parameter]
+
+            response_message = MessageConfig(button_settings=
+                                             (ButtonSettings('interaction.parameters/delete',
+                                                             buttons.DELETE_FROM_BLACK_LIST_TEXT),
+                                              ButtonSettings(
+                                                  f'interaction.parameters/show-group_{self._number_button_group}',
+                                                  buttons.BACK_TEXT)),
+                                             row_buttons=1,
+                                             text_message=parameter)
+
+        elif event == 'delete':
+            self._sql_tools.delete_parameter(self._parameters.remember_key)
+
+            response_message = MessageConfig(button_settings=
+                                             (ButtonSettings(
+                                                 f'interaction.parameters/show-group_{self._number_button_group}',
+                                                 buttons.BACK_TEXT),),
+                                             row_buttons=1,
+                                             text_message=texts.TEXT_DELETE_PARAMETER)
+
+        return response_message
+
+
+class MenuContext:
+    def __init__(self):
+        self._strategy = None
+
+    def set_strategy(self, strategy: MenuEventHandler):
+        if not isinstance(strategy, MenuEventHandler):
+            raise error_types.WrongType(str(type(strategy)))
+
+        if self._strategy != strategy:
+            self._strategy = strategy
+
+    def __not_strategy_error(self):
+        if not self._strategy:
+            raise error_types.CleanData('Strategy', 'None')
+
+    @property
+    def get_strategy(self):
+        return self._strategy
+
+    def event_handler(self, event: str) -> MessageConfig:
+        self.__not_strategy_error()
+        return self._strategy.event_handler(event)
+
+    def set_state(self, state: str):
+        self.__not_strategy_error()
+        self._strategy.set_state(state)
+
+
+menu_context = MenuContext()
+
+================================================================================
+
+File: C:\MyBot\my_bot.py
+Content:
+from constants import texts, messages
+
+from aiogram import types
+
+from visual import Visual
+from sq_functions import sql_connect
+
+from containers.bot_containers import MessageConfig, StateUserContainer, CallBackData
+from bot_tools import MenuManager, PhotoManager, TextManager
+
+from menu_hanlders import MenuContext
+
+from json_storage import JsonDictsHandler
+
+import sq_functions
+
+from interaction import InteractionContext, DataOperatorInteraction, AnalystInteraction, AdminInteraction
+
+
+# ↩
+class MYBot:
+    parameters_json = JsonDictsHandler('parameters.json')
+
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+        self.wrong_password_counter = 0
+
+        self.sql_tools: sq_functions.SQliteTools = sql_connect
+        self.menu = MenuManager()
+        self.bot = TextManager()
+        self.photos = PhotoManager(self.bot)
+        self.visual = Visual()
+        self.state_user = StateUserContainer()
+
+        self.menu_context = MenuContext()
+        self.interaction_context = InteractionContext()
+
+        self.data_operator_interaction = DataOperatorInteraction(self.state_user, self.menu,
+                                                                 self.sql_tools, self.parameters_json)
+        self.analyst_interaction = AnalystInteraction(self.state_user, self.visual, self.photos, self.menu,
+                                                      self.sql_tools, self.parameters_json)
+        self.admin_interaction = AdminInteraction(self.state_user, self.menu_context, self.menu, self.sql_tools)
+
+        self.INTERACTION_STRATEGIES = {
+            'data_operator': self.data_operator_interaction,
+            'analyst':  self.analyst_interaction,
+            'admin': self.admin_interaction
+        }
+
+        self.USER_INPUTS = {
+            'filling date': self.interaction_context.date_filling,
+            'filling int': self.interaction_context.int_filling
+        }
+
+    async def help(self, message: types.Message):
+        pass
+
+    async def state_command(self, message: types.Message):
+        command = message.text
+
+        await self.__content_clear()
+        await self.__chat_clear()
+        await self.bot.delete_message(message.chat.id, message.message_id)
+
+        if not self.bot.bots_message:
+            self.bot.bots_message = message
+            self.bot.config = messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START
+
+        if command == '/restore' and self.photos.photos:
+            await self.photos.send_photos(is_loading_message=False)
+
+        try:
+            if command == '/reset':
+                self.state_user.clear()
+                self.bot.config = messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START
+
+            await self.bot.send_message(self.bot.config, True, False)
+        except Exception as e:
+            print(e)
+
+    async def start(self, message: types.Message):
+
+        """Handler for /start"""
+
+        create_new_message = False if self.bot.bots_message else True
+        if create_new_message:
+            self.bot.bots_message = message
+
+        await self.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+
+        message_data = self.__is_user_in_black_list(message.from_user.id)
+        await self.bot.send_message(message=message_data, is_new_m=create_new_message)
+
+    # -----------------------
+
+    async def basic_callback_center(self, callback: CallBackData):
+        response_message: MessageConfig() = None
+        is_spawn_new = False
+
+        if callback.state == 'main_menu':
+            # Making main menu
+            self.state_user.clear()
+            response_message = messages.MAIN_MENU
+
+        elif callback.state in ('analyst', 'data_operator', 'admin'):
+            # Loging in
+
+            self.state_user.update_state('log_in')
+            self.state_user.update_user(callback.state)
+            response_message = messages.DATA_LOG_IN_MESSAGE
+
+        elif callback.state == 'back':
+            # Backing on one step
+
+            spawn = False
+
+            if spawn:
+                is_spawn_new = True
+                await self.bot.delete_message(chat_id=self.bot.bots_message.chat.id,
+                                              message_id=self.bot.bots_message.message_id)
+            response_message = self.bot.prev_config
+
+        else:
+            raise ValueError('Wrong callback!')
+
+        await self.bot.send_message(message=response_message, is_new_m=is_spawn_new)
+
+    async def interaction_entry_point(self, callback: CallBackData):
+        interaction_strategy = self.INTERACTION_STRATEGIES.get(self.state_user.user)
+        if interaction_strategy:
+            if interaction_strategy != self.interaction_context:
+                self.interaction_context.set_interaction_strategy(interaction_strategy)
+            response_message = await self.interaction_context.interaction_handler(callback)
+        else:
+            raise ValueError(f'Wrong strategy name! Available {self.INTERACTION_STRATEGIES.keys()}')
+
+        await self.bot.send_message(message=response_message, is_new_m=False)
+
+    async def parallel_actions(self, callback: CallBackData):
+        if callback.parallel_action:
+            if callback.parallel_action == 'group_exit':
+                await self.__content_clear()
+            else:
+                raise ValueError(f'Wrong parallel action {callback.parallel_action}!')
+
+    async def menu_operations(self, callback: CallBackData):
+        response_message = None
+
+        if callback.state == 'browsing':
+            response_message = self.menu.browsing(callback.event, self.bot.config.text,
+                                                  self.bot.config.parse_mode)
+
+        elif callback.state == 'search':
+            if self.menu.prev_group_menu_settings:
+                for setting in self.menu.prev_group_menu_settings:
+                    self.menu.group_menu.append(setting)
+
+            response_message = messages.SEARCH_INPUT_PROMPTS
+            self.state_user.update_state('search')
+
+        await self.bot.send_message(response_message, is_new_m=False)
+
+    # -----------
+
+    async def user_input(self, message: types.message):
+        state = ''
+        user = ''
+        response_message = None
+
+        is_send_new = False
+        if not self.bot.bots_message:
+            is_send_new = True
+            self.bot.bots_message = message
+
+        if self.state_user:
+            state, user = self.state_user.state, self.state_user.user
+        text_message = message.text
+
+        if not state or state == 'not_input':
+            if not is_send_new:
+                response_message = messages.UNEXPECTED_MESSAGE_RECEIVED_AFTER_START
+            else:
+                response_message = messages.UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START
+
+        elif 'filling' in state:
+            if ':' in state:
+                if len((settings := state.split(':'))) == 2:
+                    input_type, parameter = settings
+                    if input_type in self.USER_INPUTS.keys():
+                        response_message = self.USER_INPUTS[input_type](parameter, text_message)
+                    else:
+                        raise ValueError(f'Wrong input type {input_type}!')
+                else:
+                    raise ValueError(f'Wrong number of parameters in filling {settings}!')
+            else:
+                raise ValueError(f'Wrong filling state: {state}!')
+
+        elif state == 'input password':
+            self.sql_tools.save_password(self.admin_interaction.passwords.remember_key, text_message)
+            response_message = messages.SAVE_PASSWORD
+
+        elif state == 'search':
+            # Search data
+
+            if self.menu.group_menu:
+                button_settings = self.menu.group_menu.search(text_message)
+                self.menu.prev_group_menu_settings = self.menu.group_menu.settings
+
+                if button_settings:
+                    self.menu.make_menu_keyboard(button_settings, self.menu.group_menu.reset_path,
+                                                 self.menu.group_menu.back_path)
+                    text = texts.SUCCESS_SEARCH_TEXT
+                else:
+                    self.menu.group_menu.clear()
+                    text = texts.FAILURE_SEARCH_TEXT
+
+                text += f' по запросу: {text_message}'
+                response_message = self.menu.send_menu(text)
+
+            self.state_user.update_state('not_input')
+
+        elif state == 'log_in':
+            # Check password
+            password = self.sql_tools.fetch_password(post=user)
+
+            if password == text_message:
+                response_message = messages.DATA_TRUTH_PASSWORD_MESSAGE
+                self.wrong_password_counter = 0
+                self.state_user.update_state('not_input')
+            else:
+                is_attempts_end, response_message = self.__fail_count()
+                if not is_attempts_end:
+                    self.state_user.clear()
+                    self.sql_tools.add_to_black_list(self.user_id, message.from_user.username)
+
+        else:
+            raise ValueError(f'Wrong state: {state}')
+
+        await self.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+        await self.bot.send_message(response_message, is_send_new)
+
+    # --------
+
+    async def __content_clear(self):
+        if self.photos.photos:
+            await self.photos.del_photos(reset=False)
+        if self.menu:
+            self.menu.exit_menu()
+
+    async def __chat_clear(self):
+        if self.bot.bots_message:
+            try:
+                await self.bot.delete_message(self.bot.bots_message.chat.id, self.bot.bots_message.message_id)
+            except Exception as e:
+                print('sss', e)
+
+    def __is_user_in_black_list(self, user_id):
+
+        black_mark = False
+        if not black_mark:
+            return messages.DATA_START_SUCCESS_MENU
+        else:
+            return messages.BLACK_USER
+
+    def __failed_attempt_text(self) -> str:
+        return texts.FAILED_ATTEMPT_INPUT_PASSWORD.replace('counter', f'{abs(self.wrong_password_counter-10)}')
+
+    def __fail_count(self) -> tuple[bool, MessageConfig]:
+        if self.wrong_password_counter == 9:
+            self.wrong_password_counter = 0
+            return False, messages.BLACK_USER
+
+        self.wrong_password_counter += 1
+        return True, MessageConfig(text_message=self.__failed_attempt_text())
+
+================================================================================
+
+File: C:\MyBot\parameters.json
+
+File: C:\MyBot\sq_functions.py
+Content:
+import sqlite3
+from containers.data_containers import ContainerData, BlackUserContainer
+
+
+class SQliteTools:
+
+    def __init__(self):
+
+        self.cursor = None
+        self.connect = None
+
+        self.connection()
+
+    def connection(self):
+        connection = sqlite3.connect("Data_Base.db")
+        cursor = connection.cursor()
+
+        self.cursor = cursor
+        self.connect = connection
+
+    def read(self, table_name, column):
+
+        conditions = " AND".join([f"{col} IS NOT NULL" for col in column.split(',')])
+        request_code = f"SELECT {column} FROM {table_name}"
+        if column != '*':
+            request_code += f"\nWHERE {conditions}"
+
+        self.cursor.execute(request_code)
+
+        return self.cursor.fetchall()
+
+    def add_to_table(self, table_name, column, new_data):
+
+        request_code = f"""INSERT INTO {table_name}({column})
+                            VALUES {new_data}"""
+
+        self.cursor.execute(request_code)
+        self.connect.commit()
+
+    def delete_from_table(self, table_name, string_id, column, meaning):
+
+        columns = ','.join([f'{col} = {meaning}' for col in column.split(',')])
+        request_code = f"""UPDATE {table_name}
+                           SET {columns}
+                           WHERE id = {string_id}"""
+
+        self.cursor.execute(request_code)
+        self.connect.commit()
+
+    def reset(self, delete, table_name, values, column):
+        request_code = f'DELETE FROM {table_name}'
+        self.cursor.execute(request_code)
+        self.connect.commit()
+        if not delete:
+            self.add_to_table(table_name, column, values)
+
+    def fetch_password(self, post: str) -> str:
+        self.read("passwords", "post, password")
+        return '13119'
+
+    def is_in_black_list(self, user_id: str) -> bool:
+        return True
+
+    def add_to_black_list(self, user_id, nick_name):
+        pass
+
+    def save_data(self, data: dict):
+        pass
+
+    def passwords(self) -> dict:
+        return {
+            'data_operator': ContainerData(name='Дата оператор', value='123'),
+            'analyst': ContainerData(name='Аналитик', value='456'),
+            'admin': ContainerData(name='Админ', value='789')
+        }
+
+    def save_password(self, name_user: str, new_password: str):
+        pass
+
+    def black_users(self) -> tuple[BlackUserContainer, ...]:
+        return (BlackUserContainer(name='Николай', id_user=123456, date='2022.05.09', tag='@f'),
+                BlackUserContainer(name='Алексей', id_user=234567, date='2022.06.15', tag='@rte'),
+                BlackUserContainer(name='Мария', id_user=345678, date='2022.07.20'),
+                BlackUserContainer(id_user=456789, date='2022.08.25'),
+                BlackUserContainer(name='Дмитрий', id_user=567890, date='2022.09.30'))
+
+    def delete_user(self, id_user: int):
+        pass
+
+    def parameters(self):
+        return {
+            'services': ContainerData(name='Услуги', value=('Мойка',
+                    'Чистка',
+                    'Мойка салона',
+                    'Мойка кузова',
+                    'Мойка бампера',
+                    'Чистка двигателя',
+                    'Полировка кузова',
+                    'Нанесение воска',
+                    'Чистка колес',
+                    'Чистка стекол',
+                    'Удаление вмятин',
+                    'Антигравийная обработка',
+                    'Обработка кожи',
+                    'Удаление запахов',
+                    'Мойка подкапотного пространства',
+                    'Чистка кондиционера',
+                    'Обработка пластиковых элементов',
+                    'Нанесение защитного покрытия',
+                    'Шампунь для кузова',
+                    'Чистка ковров и обивки',
+                    'Обработка антикоррозийными средствами',
+                    'Мойка двигателя паром',
+                    'Сушка кузова',
+                    'Проверка и долив жидкостей',
+                    'Замена фильтров')),
+            'car_washes': ContainerData(name='Автомойка', value=("Чистая машина",
+                "Блестящий авто",
+                "АвтоСияние",
+                "Мойка на улице",
+                "СуперЧистота",
+                "АвтоГладь",
+                "Блеск и Shine",
+                "Гармония авто",
+                "Эксперт Мойки",
+                "Светлый путь")),
+
+            'stamps': ContainerData('Марки', value=(
+                                                    "Toyota",
+                                                    "Ford",
+                                                    "Honda",
+                                                    "Chevrolet",
+                                                    "Nissan",
+                                                    "Volkswagen",
+                                                    "BMW",
+                                                    "Mercedes-Benz",
+                                                    "Audi",
+                                                    "Hyundai",
+                                                    "Kia",
+                                                    "Subaru",
+                                                    "Mazda",
+                                                    "Porsche",
+                                                    "Lexus",
+                                                    "Jaguar",
+                                                    "Land Rover",
+                                                    "Fiat",
+                                                    "Tesla",
+                                                    "Volvo"))
+        }
+
+    def delete_parameter(self, parameter_key: str):
+        pass
+
+sql_connect = SQliteTools()
+
+================================================================================
+
+File: C:\MyBot\users_manager.py
+Content:
+from my_bot import MYBot
+
+
+class Users:
+    _instances = None
+
+    def __new__(cls):
+        if cls._instances is None:
+            cls._instances = super(Users, cls).__new__(cls)
+            cls.list_users = []
+
+        return cls._instances
+
+    def locate_user(self, user_id) -> MYBot:
+        index = next((i for i, data in enumerate(self.list_users) if data.user_id == user_id), None)
+        if index is not None:
+            return self.list_users[index]
+        else:
+            self.list_users.append(MYBot(user_id))
+            return self.list_users[-1]
+
+================================================================================
+
+File: C:\MyBot\visual.py
+Content:
+import matplotlib.pyplot as plt
+
+from data_management import FillingManager
+
+import os
+
+import random
+import math
+
+
+class VisualMethods:
+
+    def __spawn_colours(self, quantity: int, mode: str) -> list:
+
+        """
+        :param quantity: quantity return colours
+        :param mode: shade return colours
+        :return: colours in RGB/255
+        """
+
+        color_base = {
+            'middle': [(180, 0, 0), (0, 204, 204), (204, 132, 0), (255, 204, 0), 2],
+            'cold': [(255, 0, 0), (0, 150, 0), (0, 0, 255), (0, 255, 255), (200, 200, 0), 1],
+            'warm': [(205, 3, 3), (3, 150, 28), (205, 125, 3),(205, 205, 3), (3, 120, 205),
+                    (120, 94, 188), (204, 153, 255), 0],
+            'standard': [(255, 0, 0), (0, 255, 0), 2]
+        }
+
+        colours = color_base.get(mode, False)
+        if colours is False:
+            raise ValueError("Wrong mode. Choose from 'middle', 'cold', 'warm', or 'dark'.")
+
+        colours_set = set(colours[:-1])
+
+        if quantity > len(colours_set)-1:
+            while quantity > len(colours_set):
+
+                random_color_original = random.choice(colours[:-1])
+                random_color = random_color_original[:]
+
+                random_color[colours[-1]] += random.choice(range(0, 240))
+
+                colours_set.add(tuple(random_color))
+
+        colours = list(colours_set)[0:quantity]
+        random.shuffle(colours)
+
+        colours = [[c/255 for c in color] for color in colours]
+
+        return colours
+
+    def __spawn_title(self, plot: plt.axes, graph_name, min_size=13.5):
+
+        bbox = plot.get_window_extent()
+        sq = bbox.width * bbox.height / 120
+
+        bbox = dict(facecolor='black', edgecolor='blue', boxstyle='round,pad=0.3', linewidth=0.6)
+        plot.set_title(graph_name, color='white', bbox=bbox, fontsize=min(17, max(sq * 0.009, min_size)))
+
+    def __revers_colour_graph(self, plot: plt.axes, graph_name, x_name=None, y_name=None):
+        self.__spawn_title(plot, graph_name)
+        if x_name is not None:
+            plot.set_xlabel(x_name, color='white')
+        if y_name is not None:
+            plot.set_ylabel(y_name, color='white')
+
+        plot.tick_params(axis='both', which='both', colors='white')
+
+        plot.spines['bottom'].set_color('#D3D3D3')
+        plot.spines['left'].set_color('#D3D3D3')
+
+    def __spawn_spines(self, names_spin: list, plot: plt.axes, c, lw, points: list, position: list):
+
+        for index, name in enumerate(names_spin):
+            plot.spines[name].set_visible(True)
+            plot.spines[name].set_linewidth(lw)
+            plot.spines[name].set_color(c)
+
+            plot.spines[name].set_bounds(points[index][0], points[index][1])
+            plot.spines[name].set_position(('axes', position[index]))
+
+    def __string2list(self, max_len, strings):
+
+        strings_text = []
+        str_split = strings.split()
+
+        string = ''
+        for element in str_split:
+            if len(string) + len(element) - 1 >= max_len:
+                strings_text.append(string.strip())
+                string = f'{element} '
+            else:
+                string += f'{element} '
+
+        strings_text.append(string.strip())
+
+        return strings_text
+
+    def __len_text(self, plot, txt):
+
+        renderer = plot.figure.canvas.get_renderer()
+
+        text_extent = txt.get_window_extent(renderer)
+        text_width_px = text_extent.width
+        text_height_px = text_extent.height
+
+        ax_extent = plot.get_window_extent()
+        ax_width_px = ax_extent.width
+        ax_height_px = ax_extent.height
+
+        text_width = text_width_px / ax_width_px
+        text_height = text_height_px / ax_height_px
+
+        return [text_width, text_height]
+
+    def __sort_with_label(self, data: tuple, label: tuple):
+
+        paired = list(zip(data, label))
+        sorted_pairs = sorted(paired, key=lambda x: x[0])
+
+        return zip(*sorted_pairs)
+
+    def __legend(self, plot: plt.axes, labels: tuple):
+
+        legend = plot.legend(labels=labels, bbox_to_anchor=(1, 1.1), framealpha=0.3)
+
+        plot.grid(axis='both', linestyle='--', alpha=0.7, color='gray')
+        plt.setp(legend.get_texts(), color='white')
+
+    def _get_subplots_adjust(self, layout):
+
+        parameters = {
+            '2': (0.952, 0.039, 0.032, 0.992, 0.211, 0.119),
+            '3': (0.923, 0.059, 0.048, 0.932, 0.261, 0.193),
+            '4': (0.922, 0.059, 0.028, 0.962, 0.183, 0.119),
+            '5': (0.927, 0.059, 0.032, 0.986, 0.376, 0.21),
+            '6': (0.961, 0.059, 0.035, 0.953, 0.339, 0.073),
+            '7': (0.927, 0.059, 0.032, 0.929, 0.574, 0.225)
+        }
+
+        return parameters.get(str(layout), False)
+
+    def spawn_axs(self, num_gr: int, capacity: int) -> list:
+
+        """
+        :param num_gr: number of required graphs
+        :param capacity: capacity of graphs on one figure
+        :return: axes in list
+        """
+
+        axes = []
+        for i in range(0, num_gr, capacity):
+
+            graph_on_figure = min(num_gr, capacity)
+            half = math.ceil(graph_on_figure * 0.5)
+
+            row = 1 if half < 2 else 2
+            col = 2 if half == 1 else half
+
+            fig = plt.figure(figsize=(19.2, 9.83), facecolor='black')  # row*16 col*10
+
+            for j in range(graph_on_figure):
+
+                index = j + 1
+                if j == graph_on_figure-1:
+                    index = (index, graph_on_figure + 1)
+
+                ax = fig.add_subplot(col, row, index)
+                ax.set_facecolor('black')
+
+                axes.append(ax)
+
+            num_gr -= capacity
+        return axes
+
+    def spawn_table(self, plot: plt.axes, bbox: tuple, table_data: tuple, table_size: tuple, colours: list = None):
+
+        """
+        :param plot: ax
+        :param bbox: coordinates of table
+        :param table_data: data in table
+        :param colours: colours
+        :param table_size: width coloumn in table
+        :return: None
+        """
+
+        table = plot.table(cellText=table_data, bbox=bbox, cellLoc='center', colWidths=table_size)
+
+        for key, cell in table.get_celld().items():
+
+            cell.set_fontsize(50)
+            cell.set_text_props(fontweight='semibold')
+
+            cell.set_linewidth(1.7)
+            cell.set_edgecolor('#D3D3D3')
+
+            if key[1] == 0:
+                if colours is not None:
+                    cell.set_facecolor(colours[key[0]])
+                    continue
+
+            cell.set_facecolor('black')
+            cell.set_text_props(color='white')
+
+    def line_graph(self, plot: plt.axes, data: tuple, settings: tuple, legends: tuple):
+
+        """
+        :param plot: ax
+        :param data: data for graph (((x,y)),)
+        :param settings: name_graph, x_name, y_name, lindewith_graph
+        :param legends: labels for plot ()
+        :return: None
+        """
+
+        colours = self.__spawn_colours(len(data), 'cold')
+
+        for d, c in zip(data, colours):
+            plot.plot(d[0], d[1], color=c, marker='.', linewidth=settings[3])
+
+        self.__revers_colour_graph(plot, settings[0], settings[1], settings[2])
+
+        self.__legend(plot, legends)
+
+    def pie_graph(self, plot: plt.axes, data: tuple, settings: tuple):
+
+        """
+        :param plot: ax
+        :param data: data pie []
+        :param settings: (name_graph, (labels), annotate_table)
+        :return: None
+        """
+
+        colours = self.__spawn_colours(len(data), 'warm')
+
+        sort_data, sort_labels = self.__sort_with_label(data, settings[1])
+
+        table_data = [[' ', f'{l}', f'{round(sort_data[i] / sum(sort_data) * 100, 1)}%', f'{sort_data[i]}{settings[2]}']
+                      for i, l in enumerate(sort_labels)]
+
+        plot.pie(sort_data, colors=colours,
+                 wedgeprops={'linewidth': 2, 'edgecolor': 'black', 'center': (1.922, -0.1)}, startangle=90, radius=1.28,
+                 hatch='/')
+        self.spawn_table(plot, (-0.71, -0.09, 1.45, 1.07), tuple(table_data), table_size=(0.05, 0.5, 0.2, 0.2),
+                         colours=colours)
+
+        self.__spawn_title(plot, settings[0])
+
+    def bar_graph(self, plot: plt.axes, data: tuple, setting: tuple):
+
+        """
+        :param plot: ax
+        :param data: data bar
+        :param setting: ((labels), (name_graph, y_name))
+        :return: None
+        """
+
+        data, label = self.__sort_with_label(data, setting[0])
+
+        len_group, _ = min((2, math.modf(len(data) / 2)[0]), (3, math.modf(len(data) / 3)[0]), key=lambda x: x[1])
+
+        colours = self.__spawn_colours(len_group, 'middle')
+
+        data = [data[i:i + len_group] for i in range(0, len(data), len_group)]
+
+        width = 0.15
+        distant = 0.2
+        position = [x * width for x in range(len_group)]
+        positions = []
+
+        for i, data_chunk in enumerate(data):
+
+            bars = plot.bar(position[:len(data_chunk)], data_chunk, color=colours, width=0.15, zorder=2, hatch='/')
+
+            for j, x in enumerate(position[:len(data_chunk)]):
+                positions.append(x)
+                position[j] = x + distant + len_group * width
+
+            for bar in bars:
+                bar_center = bar.get_x() + width / 2
+                bar_height = bar.get_height()
+
+                plot.text(bar_center, bar_height, str(bar.get_height()),
+                          ha='center', va='bottom', color='white')
+
+        plot.set_xticks(positions, label)
+        plot.grid(axis='y', linestyle='--', alpha=0.7, color='gray')
+        self.__revers_colour_graph(plot, setting[1][0], y_name=setting[1][1])
+
+    def text(self, plot: plt.axes, data: str, x: float = 0, y: float = 0.97, spines=True):
+
+        """
+        :param plot: ax
+        :param data: data in str 'aoaoaoaoaoaoa...'
+        :param x: up right symbol in float
+        :param y: up right symbol in float
+        :param spines: spawn or not spines
+        :return: y
+        """
+
+        standard_sq = 328872.6259653244
+
+        bbox = plot.get_window_extent()
+        sq = bbox.width * bbox.height
+
+        letter_size = max(min(17, 16 * sq / standard_sq), 14)
+        y = min(y, 0.97)
+
+        max_len_string = bbox.width / letter_size + 22
+
+        c = 'white'
+        step = 0.08
+        paragraph = 0.01
+
+        strings_text = self.__string2list(max_len_string, data)
+
+        first_letter = strings_text[0][0]
+        strings_text[0] = strings_text[0][1:]
+
+        txt = plot.text(x + paragraph, y, first_letter, fontsize=letter_size + 5, color=c, fontweight='bold',
+                        fontfamily='Comic Sans MS')
+        first_letter_width, first_letter_height = self.__len_text(plot, txt)
+
+        if strings_text[0][1] == ' ':
+            paragraph += 0.015
+        plot.text(x + paragraph + first_letter_width, y, strings_text[0], fontsize=letter_size, color=c,
+                  fontfamily='Georgia')
+
+        if spines:
+            indent_x = x - 0.6 * first_letter_width
+            indent_y = y + first_letter_height * 0.95
+
+            len_top = len(sorted(strings_text, key=len, reverse=True)[0]) * first_letter_width * 0.63
+
+            self.__spawn_spines(['left', 'top'], plot, '#D3D3D3', 2, [[0, indent_y], [indent_x, len_top]],
+                                [indent_x, indent_y])
+
+        for s in strings_text[1:]:
+            plot.text(x, y := y - step, s, fontsize=letter_size, color=c, fontfamily='Georgia')
+
+        return y
+
+    def hist_graph(self, plot: plt.axes, data: tuple, settings: tuple, label: tuple):
+
+        """
+        :param plot: ax
+        :param data: data in ()
+        :param settings: name_graph, x_name, y_name
+        :param label: data for legend ()
+        :return: None
+        """
+
+        color = self.__spawn_colours(1, 'middle')
+
+        plot.hist(data, bins='auto', color=color, alpha=0.9, edgecolor='black', hatch='x')
+
+        self.__revers_colour_graph(plot, settings[0], settings[1], settings[2])
+        self.__legend(plot, label)
+
+    def point_graph(self, plot: plt.axes, data: tuple, settings: tuple, legend: tuple):
+
+        """
+        :param plot: ax
+        :param data: data in (((x),(y)),)
+        :param settings: name_graph, x_name, y_name
+        :param legend: legends_data (labels)
+        :return: None
+        """
+
+        colours = self.__spawn_colours(len(data), 'standard')
+        for d, c in zip(data, colours):
+            plot.scatter(d[0], d[1], s=9, color=c, marker='s', zorder=6)
+
+        self.__legend(plot, legend)
+        self.__revers_colour_graph(plot, settings[0], settings[1], settings[2])
+
+
+class Visual(VisualMethods):
+
+    def set_settings(self, settings: FillingManager):
+        pass
+
+    def __open_graphs(self) -> tuple[str, ...]:
+        return tuple(os.path.join('plots/', name) for name in os.listdir('plots/'))
+
+    def generate_plots(self, func_name='', time_range='', name_car_wash='', capacity=1) -> tuple[str, ...]:
+        return self.__open_graphs()
+        # name_graphs = ''
+        #
+        # axes = self.spawn_axs(int(func_name.split('.')[-1]), capacity)
+        #
+        # top, bottom, left, right, hspace, wspace = self._get_subplots_adjust(4)
+        # plt.subplots_adjust(top=top,
+        #                     bottom=bottom,
+        #                     left=left,
+        #                     right=right,
+        #                     hspace=hspace,
+        #                     wspace=wspace)
+        #
+        # if func_name.split('.')[0] == 'services':
+        #     self.services(None, axes)
+
+    def services(self, datas, axes: list[plt.axes]):
+        pass
+
+
+visual = Visual()
+visual.generate_plots('services.6', 0, 5, 6)
+
+================================================================================
+Directory: C:\MyBot\.git
+
+File: C:\MyBot\.git\COMMIT_EDITMSG
+
+File: C:\MyBot\.git\config
+
+File: C:\MyBot\.git\description
+
+File: C:\MyBot\.git\HEAD
+
+File: C:\MyBot\.git\index
+Directory: C:\MyBot\.git\hooks
+
+File: C:\MyBot\.git\hooks\applypatch-msg.sample
+
+File: C:\MyBot\.git\hooks\commit-msg.sample
+
+File: C:\MyBot\.git\hooks\fsmonitor-watchman.sample
+
+File: C:\MyBot\.git\hooks\post-update.sample
+
+File: C:\MyBot\.git\hooks\pre-applypatch.sample
+
+File: C:\MyBot\.git\hooks\pre-commit.sample
+
+File: C:\MyBot\.git\hooks\pre-merge-commit.sample
+
+File: C:\MyBot\.git\hooks\pre-push.sample
+
+File: C:\MyBot\.git\hooks\pre-rebase.sample
+
+File: C:\MyBot\.git\hooks\pre-receive.sample
+
+File: C:\MyBot\.git\hooks\prepare-commit-msg.sample
+
+File: C:\MyBot\.git\hooks\push-to-checkout.sample
+
+File: C:\MyBot\.git\hooks\sendemail-validate.sample
+
+File: C:\MyBot\.git\hooks\update.sample
+Directory: C:\MyBot\.git\info
+
+File: C:\MyBot\.git\info\exclude
+Directory: C:\MyBot\.git\logs
+
+File: C:\MyBot\.git\logs\HEAD
+Directory: C:\MyBot\.git\logs\refs
+Directory: C:\MyBot\.git\logs\refs\heads
+
+File: C:\MyBot\.git\logs\refs\heads\master
+Directory: C:\MyBot\.git\logs\refs\remotes
+Directory: C:\MyBot\.git\logs\refs\remotes\origin
+
+File: C:\MyBot\.git\logs\refs\remotes\origin\master
+Directory: C:\MyBot\.git\objects
+Directory: C:\MyBot\.git\objects\01
+
+File: C:\MyBot\.git\objects\01\496ef72950f4b3d99e72fb00d8f14414217105
+Directory: C:\MyBot\.git\objects\04
+
+File: C:\MyBot\.git\objects\04\b28243b4417a4a6c127dc2d724d58b4b8c91f5
+Directory: C:\MyBot\.git\objects\07
+
+File: C:\MyBot\.git\objects\07\3cfa438e8ac502837ee99c16af4e199ac2ce3e
+Directory: C:\MyBot\.git\objects\0a
+
+File: C:\MyBot\.git\objects\0a\769e273dc0237e906f08a2267b4b81a048e23c
+
+File: C:\MyBot\.git\objects\0a\9682f35e3c8e49e5298613b86cbb4f31a06c70
+Directory: C:\MyBot\.git\objects\10
+
+File: C:\MyBot\.git\objects\10\5ce2da2d6447d11dfe32bfb846c3d5b199fc99
+Directory: C:\MyBot\.git\objects\11
+
+File: C:\MyBot\.git\objects\11\a5d8e18ab71465be9424cf930c5e792c75edb7
+Directory: C:\MyBot\.git\objects\12
+
+File: C:\MyBot\.git\objects\12\8a35f8ed8ec8c6ad1c5e2cb454b0184af2b0eb
+Directory: C:\MyBot\.git\objects\14
+
+File: C:\MyBot\.git\objects\14\7494382c2fe20fad5cf2220236046da8321b28
+Directory: C:\MyBot\.git\objects\15
+
+File: C:\MyBot\.git\objects\15\6405839143eea336ed3df87164c0010b014ebf
+Directory: C:\MyBot\.git\objects\16
+
+File: C:\MyBot\.git\objects\16\b12d84b6dfcc9bfc680cb76a9014a4cda6903a
+Directory: C:\MyBot\.git\objects\17
+
+File: C:\MyBot\.git\objects\17\abec4c81300a0569d667bb6560f74345ab1d86
+Directory: C:\MyBot\.git\objects\18
+
+File: C:\MyBot\.git\objects\18\99856a8431ae4b27077cf35f5c498709c08e49
+Directory: C:\MyBot\.git\objects\1a
+
+File: C:\MyBot\.git\objects\1a\985b66e2795c6d98aef25c640ee6f2b9ccedbe
+
+File: C:\MyBot\.git\objects\1a\d31d6b8868e07cfc61f66fbbc919dec541f109
+Directory: C:\MyBot\.git\objects\1c
+
+File: C:\MyBot\.git\objects\1c\60d875be418faf5b373a2ab2ab14929e561e62
+Directory: C:\MyBot\.git\objects\20
+
+File: C:\MyBot\.git\objects\20\2f53cf5e48116dc7190bef941393e31a5fcadb
+Directory: C:\MyBot\.git\objects\23
+
+File: C:\MyBot\.git\objects\23\f12db9c634a6855db70d1964e5d10363f4a853
+Directory: C:\MyBot\.git\objects\26
+
+File: C:\MyBot\.git\objects\26\d33521af10bcc7fd8cea344038eaaeb78d0ef5
+Directory: C:\MyBot\.git\objects\27
+
+File: C:\MyBot\.git\objects\27\6b6f6c35fb8b6b808f612fdf7658a097e9f763
+Directory: C:\MyBot\.git\objects\28
+
+File: C:\MyBot\.git\objects\28\af53252d76cb629ef9514bd51a34f705fa4090
+Directory: C:\MyBot\.git\objects\29
+
+File: C:\MyBot\.git\objects\29\983c46ad07b982643336c92cde536a9076297e
+Directory: C:\MyBot\.git\objects\2a
+
+File: C:\MyBot\.git\objects\2a\ab27c799909cb2d4921c4f0737107d0edd6a5f
+
+File: C:\MyBot\.git\objects\2a\bcdbb136da318529f930ff1d1c2ee65c3a3d15
+Directory: C:\MyBot\.git\objects\2d
+
+File: C:\MyBot\.git\objects\2d\1df4811c011e75ae25f698171bd169cdf3a7d0
+Directory: C:\MyBot\.git\objects\2e
+
+File: C:\MyBot\.git\objects\2e\1687f79fc080dbebaa698c6224955795272bae
+Directory: C:\MyBot\.git\objects\2f
+
+File: C:\MyBot\.git\objects\2f\5b1f8136472a6eab46e184e878b5b703733e23
+Directory: C:\MyBot\.git\objects\30
+
+File: C:\MyBot\.git\objects\30\739ecbeaf3e969fd04708d4aa5c2fde47a4db3
+Directory: C:\MyBot\.git\objects\33
+
+File: C:\MyBot\.git\objects\33\ee127b18c4ef0b4837fcea4090008fead3a7ea
+Directory: C:\MyBot\.git\objects\36
+
+File: C:\MyBot\.git\objects\36\6470b5c1e8286a7f1793a06e47e54f9baa5a55
+Directory: C:\MyBot\.git\objects\37
+
+File: C:\MyBot\.git\objects\37\b823d86597ea81bdb0399e5eb7dcbe788dd362
+Directory: C:\MyBot\.git\objects\41
+
+File: C:\MyBot\.git\objects\41\51c93d9886c4233a23eb64f2236e6e3928de63
+Directory: C:\MyBot\.git\objects\42
+
+File: C:\MyBot\.git\objects\42\9daf32a6942b5667cdffb4b898dacfbe7a9631
+Directory: C:\MyBot\.git\objects\44
+
+File: C:\MyBot\.git\objects\44\0b75905da3e741cb6c2dfdef6db2f8fc15d895
+Directory: C:\MyBot\.git\objects\46
+
+File: C:\MyBot\.git\objects\46\f51834ab82c0800c541e903a0746e972efcba5
+Directory: C:\MyBot\.git\objects\49
+
+File: C:\MyBot\.git\objects\49\91ec9583cfc1572152a1704d109bd07617c7ae
+Directory: C:\MyBot\.git\objects\4b
+
+File: C:\MyBot\.git\objects\4b\103dfbfb0434e1451d22a42f64b2b11bcb15f0
+
+File: C:\MyBot\.git\objects\4b\4ac7404e7099e0e5fe7c376e139101ae7912c8
+Directory: C:\MyBot\.git\objects\4c
+
+File: C:\MyBot\.git\objects\4c\d68607ccad41c65f0f014c9ee1a07ae648ee19
+Directory: C:\MyBot\.git\objects\4e
+
+File: C:\MyBot\.git\objects\4e\013e0ae320eec9f150a1206e64bac2382f9411
+
+File: C:\MyBot\.git\objects\4e\28cd3326f26bf5219e09a3c9c9e01858adea05
+
+File: C:\MyBot\.git\objects\4e\f04fccadc3d1ba164c849e0e7bd034ffb81f4d
+
+File: C:\MyBot\.git\objects\4e\f6dd43348a2790cf7ec30bc62c2208133e7582
+Directory: C:\MyBot\.git\objects\4f
+
+File: C:\MyBot\.git\objects\4f\5a9d3023507b9f6072535702d0c9c73acd31e7
+Directory: C:\MyBot\.git\objects\52
+
+File: C:\MyBot\.git\objects\52\cfcb1392a32182294738c854a75cd9f26ca3ba
+Directory: C:\MyBot\.git\objects\54
+
+File: C:\MyBot\.git\objects\54\2a620b562f07007745b99a06f37814d7cf6323
+
+File: C:\MyBot\.git\objects\54\58cb6025a78e858f95241577387553f843d17e
+Directory: C:\MyBot\.git\objects\56
+
+File: C:\MyBot\.git\objects\56\a71758f54d4c278b3163b77686f42345516ce9
+Directory: C:\MyBot\.git\objects\59
+
+File: C:\MyBot\.git\objects\59\8a6124e34b21d92ace01e720712154dcf88c83
+Directory: C:\MyBot\.git\objects\5d
+
+File: C:\MyBot\.git\objects\5d\27d9e10cfb8061a5878250df1eccff21b6e364
+Directory: C:\MyBot\.git\objects\5f
+
+File: C:\MyBot\.git\objects\5f\4104733398e90de636396691a9ffb21c8d41cd
+Directory: C:\MyBot\.git\objects\61
+
+File: C:\MyBot\.git\objects\61\2c8be2012b9b661bde40fafba02e3d63b8b764
+
+File: C:\MyBot\.git\objects\61\4dcf6fc6b88655a10bb61cfd3e44b243f65867
+Directory: C:\MyBot\.git\objects\62
+
+File: C:\MyBot\.git\objects\62\36b7072873318ce1f461e2f798f7c51710d264
+Directory: C:\MyBot\.git\objects\68
+
+File: C:\MyBot\.git\objects\68\a356664d033f1eadb7bbdb60f24d922e313b8a
+Directory: C:\MyBot\.git\objects\6a
+
+File: C:\MyBot\.git\objects\6a\6506b3c78c000c3e76f3a11065b94464bf85a1
+Directory: C:\MyBot\.git\objects\6e
+
+File: C:\MyBot\.git\objects\6e\339051ada7a82845bf9a4ee01cdec976bc7d79
+Directory: C:\MyBot\.git\objects\71
+
+File: C:\MyBot\.git\objects\71\a0c36e8d7ddd307c1ca896f2fa36119aea6cdd
+Directory: C:\MyBot\.git\objects\72
+
+File: C:\MyBot\.git\objects\72\f1447f03d8d15e090611c05351381b0891f993
+Directory: C:\MyBot\.git\objects\73
+
+File: C:\MyBot\.git\objects\73\65d51ad4fcc2b840ab551bebd252b21eb55ab6
+Directory: C:\MyBot\.git\objects\74
+
+File: C:\MyBot\.git\objects\74\6ea06734c023e3725545b84efd38a9e1fa9541
+Directory: C:\MyBot\.git\objects\77
+
+File: C:\MyBot\.git\objects\77\43f06f894e6d8bea058e20a9ce3aa743352f58
+
+File: C:\MyBot\.git\objects\77\68ab035016f558d13c2db61698146fe0a86b2c
+Directory: C:\MyBot\.git\objects\79
+
+File: C:\MyBot\.git\objects\79\176b2e4ef2e514b269d34373d322383d92292a
+Directory: C:\MyBot\.git\objects\7b
+
+File: C:\MyBot\.git\objects\7b\e76896ee1b2899880e9aec839cfb151f8a1482
+Directory: C:\MyBot\.git\objects\7f
+
+File: C:\MyBot\.git\objects\7f\b336ed93cd2e9affadbbc34283bb1a4c4b5186
+Directory: C:\MyBot\.git\objects\80
+
+File: C:\MyBot\.git\objects\80\0c9c99aab46a554c0674bcc2eb4408ea1f7c0b
+Directory: C:\MyBot\.git\objects\84
+
+File: C:\MyBot\.git\objects\84\214c456e825d6e21d5d678f048fd8e6fda77b8
+Directory: C:\MyBot\.git\objects\85
+
+File: C:\MyBot\.git\objects\85\26c16bc698a1576b7db760750118340ac406d2
+Directory: C:\MyBot\.git\objects\86
+
+File: C:\MyBot\.git\objects\86\f24b27608cc9c287514799ed200a1b171f9bee
+Directory: C:\MyBot\.git\objects\8a
+
+File: C:\MyBot\.git\objects\8a\3c864479ddec941ef4a8e04f2c70b94bb46bd3
+Directory: C:\MyBot\.git\objects\8e
+
+File: C:\MyBot\.git\objects\8e\6ead683ce98a61bf9c645975cfadc6302dafb7
+Directory: C:\MyBot\.git\objects\91
+
+File: C:\MyBot\.git\objects\91\0ec8ee2f7280b3d71cc1a8e5009bc205c974b2
+Directory: C:\MyBot\.git\objects\92
+
+File: C:\MyBot\.git\objects\92\6c1757088a37748fbbd2e92ebfdd7ca4114854
+Directory: C:\MyBot\.git\objects\93
+
+File: C:\MyBot\.git\objects\93\6fa4c4375dff31b9994ec0e9a7cf43005b64f4
+Directory: C:\MyBot\.git\objects\94
+
+File: C:\MyBot\.git\objects\94\a25f7f4cb416c083d265558da75d457237d671
+Directory: C:\MyBot\.git\objects\95
+
+File: C:\MyBot\.git\objects\95\d0e801fa57b0ba96091731c4fe2363eca76144
+Directory: C:\MyBot\.git\objects\97
+
+File: C:\MyBot\.git\objects\97\f9cdf685131f903bd22a167ec7bda6592dc1d4
+Directory: C:\MyBot\.git\objects\98
+
+File: C:\MyBot\.git\objects\98\34fa6b077bf1e4226dbbe8d004b7bbf7460f35
+Directory: C:\MyBot\.git\objects\9b
+
+File: C:\MyBot\.git\objects\9b\8494f179b02bd7023d2510be7319a9238adf91
+
+File: C:\MyBot\.git\objects\9b\98908476f76d910e20682b0f172f554c2bd962
+Directory: C:\MyBot\.git\objects\9c
+
+File: C:\MyBot\.git\objects\9c\834c9ecfa3e94d1850ac3ccf35b333257a322c
+Directory: C:\MyBot\.git\objects\a0
+
+File: C:\MyBot\.git\objects\a0\8171e6be6754699279f863d1cf27f7c7cf9864
+Directory: C:\MyBot\.git\objects\a1
+
+File: C:\MyBot\.git\objects\a1\9b7cf70df6cf99d557c39d49b9d5e5d46b8717
+Directory: C:\MyBot\.git\objects\a3
+
+File: C:\MyBot\.git\objects\a3\99ec9fec797d2794c1fc5fb6623aa69e2babd2
+
+File: C:\MyBot\.git\objects\a3\f5a7851e2f490cd1e943b942ff03af01ffd642
+Directory: C:\MyBot\.git\objects\ac
+
+File: C:\MyBot\.git\objects\ac\49520fe098b1d5ee4837bda9602ae15f1224b8
+Directory: C:\MyBot\.git\objects\b1
+
+File: C:\MyBot\.git\objects\b1\169576a59d7f77569483b36bf3f684f5e2d162
+
+File: C:\MyBot\.git\objects\b1\40a2e48ff40244869b85a24277bb2b50d6b21e
+Directory: C:\MyBot\.git\objects\b5
+
+File: C:\MyBot\.git\objects\b5\93c1fb496041e9f91c10fb4d36d44b0b0b486c
+Directory: C:\MyBot\.git\objects\b6
+
+File: C:\MyBot\.git\objects\b6\f79b738d778c9ec5ee101c08b97ac814f4e667
+Directory: C:\MyBot\.git\objects\bb
+
+File: C:\MyBot\.git\objects\bb\5f4c532bcca6f6eb6f43a432f078a9da42e542
+Directory: C:\MyBot\.git\objects\c8
+
+File: C:\MyBot\.git\objects\c8\53062764a6952357bea03d1f6f46a46ef78eb0
+Directory: C:\MyBot\.git\objects\ca
+
+File: C:\MyBot\.git\objects\ca\124b699857714870930a3d17f131209ca672c3
+Directory: C:\MyBot\.git\objects\cb
+
+File: C:\MyBot\.git\objects\cb\75c56a5058143379c78e6450324add253180f8
+Directory: C:\MyBot\.git\objects\ce
+
+File: C:\MyBot\.git\objects\ce\38507ac105141a4d6b7c98da5227ca886f84ed
+Directory: C:\MyBot\.git\objects\d2
+
+File: C:\MyBot\.git\objects\d2\24f4447970ba4cf879abfd2115bb2566f62d57
+Directory: C:\MyBot\.git\objects\d5
+
+File: C:\MyBot\.git\objects\d5\57c84477ad890040603a30599cb25806a9bb30
+Directory: C:\MyBot\.git\objects\d6
+
+File: C:\MyBot\.git\objects\d6\44cd71866053917bee351ccdaa119787de7d95
+Directory: C:\MyBot\.git\objects\d7
+
+File: C:\MyBot\.git\objects\d7\ae06b736f6ac7781f0c4baaf482873eba820f8
+Directory: C:\MyBot\.git\objects\dc
+
+File: C:\MyBot\.git\objects\dc\32dd216971198816513b6699922f0b2718c1fd
+
+File: C:\MyBot\.git\objects\dc\9ea4906e15825848ae951155a4381c08529eaf
+Directory: C:\MyBot\.git\objects\e0
+
+File: C:\MyBot\.git\objects\e0\5977b7ecf54c50f7df51c096b1ce2dea809f65
+
+File: C:\MyBot\.git\objects\e0\5b554807f0784e044d91fb8525d853f490cb69
+Directory: C:\MyBot\.git\objects\e1
+
+File: C:\MyBot\.git\objects\e1\4d66b9c1e2019b84545c4883116b29aa418ae3
+Directory: C:\MyBot\.git\objects\e5
+
+File: C:\MyBot\.git\objects\e5\20c6db77a8de811c5daffb035b9920dd82db71
+
+File: C:\MyBot\.git\objects\e5\8859c008c18ebd55e99edc829b88a81d064bd9
+Directory: C:\MyBot\.git\objects\e6
+
+File: C:\MyBot\.git\objects\e6\e200274548d1727adbe4b2f99bdbf05117da21
+Directory: C:\MyBot\.git\objects\ec
+
+File: C:\MyBot\.git\objects\ec\a8f686068e1d9a647d86ce6857aad1e4f37769
+Directory: C:\MyBot\.git\objects\ef
+
+File: C:\MyBot\.git\objects\ef\9e546359eaf15d98d23957eb4f7a3939f9d12b
+Directory: C:\MyBot\.git\objects\f6
+
+File: C:\MyBot\.git\objects\f6\d558d16f229ddc276a40cd4cb0846f034c9f40
+Directory: C:\MyBot\.git\objects\f9
+
+File: C:\MyBot\.git\objects\f9\e9166fc023be890a51a6f7b85de494c1857d51
+Directory: C:\MyBot\.git\objects\fe
+
+File: C:\MyBot\.git\objects\fe\e11092fbb90ccdea78b60651878dbc950be1cf
+Directory: C:\MyBot\.git\objects\info
+Directory: C:\MyBot\.git\objects\pack
+Directory: C:\MyBot\.git\refs
+Directory: C:\MyBot\.git\refs\heads
+
+File: C:\MyBot\.git\refs\heads\master
+Directory: C:\MyBot\.git\refs\remotes
+Directory: C:\MyBot\.git\refs\remotes\origin
+
+File: C:\MyBot\.git\refs\remotes\origin\master
+Directory: C:\MyBot\.git\refs\tags
+Directory: C:\MyBot\.idea
+
+File: C:\MyBot\.idea\.gitignore
+
+File: C:\MyBot\.idea\.name
+
+File: C:\MyBot\.idea\misc.xml
+
+File: C:\MyBot\.idea\modules.xml
+
+File: C:\MyBot\.idea\MyBot.iml
+
+File: C:\MyBot\.idea\vcs.xml
+
+File: C:\MyBot\.idea\workspace.xml
+Directory: C:\MyBot\.idea\inspectionProfiles
+
+File: C:\MyBot\.idea\inspectionProfiles\profiles_settings.xml
+Directory: C:\MyBot\constants
+
+File: C:\MyBot\constants\buttons.py
+Content:
+from . import texts, constants
+
+from containers import ButtonSettings
+
+DATE_MANUAL_INPUT_TEXT = 'Ручной ввод ✍'
+DATE_AUTO_INPUT_TEXT = 'Автоматическая 🔧'
+BACK_TEXT = 'Обратно ↩'
+OK = 'Ок'
+DELETE_FROM_BLACK_LIST_TEXT = 'Удалить'
+RESET_TEXT_GROUP_MENU = 'Обновить 🔄'
+BACK_TEXT_GROUP_MENU = 'Выход 🚪'
+SEND = 'Отправить ➡'
+FORWARD = 'Далее ➡'
+SEARCH_TEXT = 'Поиск 🔎'
+
+FORWARD_TEXT = 'Вперед ⏩'
+BACK_MENU_TEXT = '⏪ Назад'
+
+INPUT_PASSWORD_BACK = (ButtonSettings('interaction.passwords/start', BACK_TEXT),)
+PLOTS_MENU_BUTTON = (ButtonSettings('interaction.main||group_exit', BACK_TEXT),)
+BACK_BUTTON_SETTINGS = (ButtonSettings('basic.back', BACK_TEXT),)
+BACK_MAIN_MENU = ButtonSettings(constants.MAIN_MENU, 'Главное меню 🏠')
+
+SUCCESSFUL_SAVING_TEXT = 'В меню'
+
+MESSAGES_GROUP_MENU_BUTTONS = (ButtonSettings('menu_operation.show_more', 'Показать еще'),
+                               ButtonSettings('menu_operation.search', SEARCH_TEXT))
+
+MENU_BUTTONS = (ButtonSettings('menu_operation.search/start', SEARCH_TEXT),)
+BACK_BUTTON = (ButtonSettings('menu_operation.browsing/back', BACK_MENU_TEXT),)
+NEXT_BUTTON = (ButtonSettings('menu_operation.browsing/next', FORWARD_TEXT),)
+
+RESET_BLACK_LIST = ButtonSettings('interaction.black_list/reset_table', 'Сбросить таблицу')
+RESET_PASSWORDS = ButtonSettings('interaction.passwords/reset_passwords', 'Сбросить')
+
+PARAMETERS_ADDITIONAL_KEYBOARD = (ButtonSettings('interaction.parameters/add', 'Добавить ➕'),
+                                  ButtonSettings('interaction.parameters/reset_par', 'Сбросить'))
+
+================================================================================
+
+File: C:\MyBot\constants\constants.py
+Content:
+import re
+from containers import FillingContainerData, CallBackData
+
+create_callback = CallBackData.creating_callback
+
+DATE_PATTERN = re.compile(r'^\d{4}\.(0[1-9]|1[0-2])\.(0[1-9]|[12][0-9]|3[01])$')
+
+PARSE_MODE1 = 'MarkdownV2'
+
+BASIC_GROUP = 'basic'
+
+USER_STATE_NAME_OPERATOR = 'data_operator'
+USER_STATE_NAME_ADMIN = 'admin'
+USER_STATE_NAME_ANALYST = 'analyst'
+
+MAIN_MENU = create_callback('basic', 'main_menu')
+INTERACTION_MAIN_MENU = create_callback('interaction', 'main')
+
+LEN_GROUP_MESSAGES = 4
+LEN_MENU = 4
+
+MENU_BUTTONS_ROW = 1
+MENU_ROW = 2
+
+FILLING_OPERATOR_MENU = {'services': FillingContainerData(name='Услуги', type_input='menu'),
+                         'rating': FillingContainerData(name='Оценка', type_input='slider'),
+                         'date': FillingContainerData(name='Дата', type_input='date'),
+                         'discount': FillingContainerData(name='Скидка', type_input='int'),
+                         'stamp': FillingContainerData(name='Марка', type_input='menu'),
+                         'profit': FillingContainerData(name='Прибыль', type_input='int'),
+                         'car_wash': FillingContainerData(name='Автомойка', type_input='menu')}
+
+FILLING_ANALYST_MENU = {'capacity': FillingContainerData(name='Вместимость 🧾', type_input='slider'),
+                        'car_wash': FillingContainerData(name='Автомойка 🚘', type_input='menu'),
+                        'date_start': FillingContainerData(name='Стартовая дата 🗓', type_input='date'),
+                        'date_end': FillingContainerData(name='Конечная дата 📅', type_input='date')}
+
+================================================================================
+
+File: C:\MyBot\constants\errors.py
+Content:
+BOT_TOKEN_IS_NONE = ValueError('Bot token is none!')
+WRONG_MENU_KEYBOARD_DATA = ValueError('Button settings is None or is clear!')
+
+WRONG_TYPE = TypeError('Wrong type!')
+
+OUT_INDEX = ValueError('Index is out of range!')
+
+INCORRECT_USE_MODE = ValueError('Incorrect use of the mode!')
+WRONG_MODE = ValueError('Wrong Mode!')
+
+================================================================================
+
+File: C:\MyBot\constants\error_types.py
+Content:
+class InvalidError(Exception):
+    def __init__(self, type: str, event: str, available_events=()):
+        self._type = type
+        self._event = event
+        self._available_events = available_events
+
+    def __str__(self):
+        available = ''
+        if self._available_events:
+            available = f"Available: {'; '.join(self._available_events)}"
+        return f'Wrong {self._type}: {self._event}. {available}'
+
+
+class EventSintaxisError(Exception):
+    def __init__(self, event: str):
+        self._event = event
+
+    def __str__(self):
+        return f'The event "{self._event}" is incorrectly composed'
+
+
+class CleanData(Exception):
+    def __init__(self, type_data: str, state: str = 'clear'):
+        self._type_data = type_data
+        self._state = state
+
+    def __str__(self):
+        return f'{self._type_data} is {self._state}!'
+
+
+class WrongEvent(Exception):
+    def __init__(self, event: str):
+        self._event = event
+
+    def __str__(self):
+        return f'Wrong event: {self._event}'
+
+
+class WrongType(Exception):
+    def __init__(self, type_obj: str):
+        self._type = type_obj
+
+    def __str__(self):
+        return f'Wrong type {self._type}!'
+
+
+class WrongCallbackType(Exception):
+    def __init__(self, callback: str):
+        self._callback = callback
+
+    def __str__(self):
+        return f'Wrong Callback: {self._callback}! Truth group.state/event||parallel_action'
+
+
+================================================================================
+
+File: C:\MyBot\constants\functions.py
+Content:
+from containers import ButtonSettings
+
+
+def make_slider(state: str, len_slider: range) -> tuple[ButtonSettings, ...]:
+    return tuple((ButtonSettings(f'interaction.{state}/save{value}', str(value)) for value in len_slider))
+
+
+def replace_constant_text(constant: str, value: str | int) -> str:
+    pass
+
+================================================================================
+
+File: C:\MyBot\constants\messages.py
+Content:
+from containers import MessageConfig, ButtonSettings, CallBackData
+create_callback = CallBackData.creating_callback
+
+from . import texts, buttons, constants, functions
+
+
+BLACK_USER = MessageConfig(text_message='Извините, вы в черном списке')
+
+SUCCESSFUL_SAVE_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU,
+                                                                        buttons.BACK_TEXT),),
+                                        row_buttons=1,
+                                        text_message=texts.SUCCESSFUL_SAVING_TEXT,
+                                        parse_mode=constants.PARSE_MODE1)
+SUCCESSFUL_SEND_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU,
+                                                                        'Заполнить еще 🔄'),
+                                                         buttons.BACK_MAIN_MENU),
+                                        row_buttons=1,
+                                        text_message='Данные успешно занесены в таблицу ✅')
+
+INPUT_NEW_PASSWORD = MessageConfig(button_settings=buttons.INPUT_PASSWORD_BACK,
+                                   text_message='Введите новый пароль: ',
+                                   row_buttons=1)
+SUCCESSFUL_DELETE_USER = MessageConfig(button_settings=(ButtonSettings(create_callback('interaction', 'black_list',
+                                                                                       'start'),
+                                                                       buttons.BACK_TEXT),),
+                                       text_message='Пользователь разблокирован',
+                                       row_buttons=1)
+SEARCH_INPUT_PROMPTS = MessageConfig(text_message='Введите текстовый запрос для поиска')
+
+ADMIN_MENU = MessageConfig(
+            button_settings=(
+                ButtonSettings('interaction.black_list/start', 'Черный список 🚫'),
+                ButtonSettings('interaction.passwords/start', 'Пароли 🔒'),
+                ButtonSettings('interaction.parameters/start', 'Параметры заполнения таблицы 📜'),
+                buttons.BACK_MAIN_MENU
+            ),
+            row_buttons=1,
+            text_message='Отредактировать...'
+            )
+
+MAIN_MENU = MessageConfig(
+        button_settings=(
+            ButtonSettings(create_callback(constants.BASIC_GROUP, constants.USER_STATE_NAME_ANALYST),
+                           'Аналитик 📊'),
+            ButtonSettings(create_callback(constants.BASIC_GROUP, constants.USER_STATE_NAME_OPERATOR),
+                           'Оператор учета 🗂'),
+            ButtonSettings(create_callback(constants.BASIC_GROUP, constants.USER_STATE_NAME_ADMIN),
+                           'Администратор 🔑')
+        ),
+        row_buttons=2,
+        text_message=(
+            'От чьей должности вы желаете продолжить?'
+            '\n\n*Аналитик* \\- Просмотр статистики и ее настройка '
+            '\n*Оператор учета* \\- Внесение отчета в единый реестр'
+            '\n*Администратор* \\- Настройки бота'
+        ),
+        parse_mode=constants.PARSE_MODE1
+    )
+
+DATA_START_SUCCESS_MENU = MessageConfig(button_settings=(ButtonSettings(constants.MAIN_MENU, 'К работе 🚀'),),
+                                        row_buttons=1, text_message='Привет! С началом рабочего дня!')
+
+DATA_LOG_IN_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constants.MAIN_MENU, buttons.BACK_TEXT),),
+                                    row_buttons=2, text_message='_Введите пароль\\: _',
+                                    parse_mode=constants.PARSE_MODE1)
+
+DATA_TRUTH_PASSWORD_MESSAGE = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU, 'Далее ➡'),),
+                                            row_buttons=1, text_message='_Введён правильный пароль ✅_',
+                                            parse_mode=constants.PARSE_MODE1)
+UNEXPECTED_MESSAGE_RECEIVED_AFTER_START = MessageConfig(button_settings=buttons.BACK_BUTTON_SETTINGS, row_buttons=1,
+                                                        text_message='Сейчас говорю Я!!!! Используйте кнокпи')
+UNEXPECTED_MESSAGE_RECEIVED_BEFORE_START = MessageConfig(text_message='Тапните на /start')
+WRONG_INPUT_DATE_MESSAGE = MessageConfig(text_message='Вы неправильно ввели дату!!')
+WRONG_INPUT_PROMPTS_MESSAGE = MessageConfig(button_settings=buttons.BACK_BUTTON_SETTINGS,
+                                            row_buttons=1,
+                                            text_message='Вы использовали запрещенные символы!')
+DATA_OPERATOR_INPUT_PROMPTS = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU,
+                                                                            buttons.BACK_TEXT),),
+                                            row_buttons=1,
+                                            text_message=('Введите целое число\\:\n'
+                                                          ' _Прибыль указывается в рублях, а скидка в процентах_'),
+                                            parse_mode=constants.PARSE_MODE1)
+DATA_OPERATOR_FILLED_FAILURE = MessageConfig(button_settings=(ButtonSettings(constants.INTERACTION_MAIN_MENU,
+                                                                             buttons.BACK_TEXT),),
+                                             text_message='Вы заполнили не все данные!',
+                                             row_buttons=1)
+ANALYST_MAIN_MENU = MessageConfig(button_settings=(ButtonSettings('interaction.open', 'Статистика 📊'),
+                                                   ButtonSettings('interaction.edit/start', 'Настройки ⚙'),
+                                                   buttons.BACK_MAIN_MENU),
+                                  row_buttons=2,
+                                  text_message='Выберите')
+SAVE_PASSWORD = MessageConfig(button_settings=buttons.INPUT_PASSWORD_BACK,
+                              text_message='Пароль сохранен',
+                              row_buttons=1)
+CAPACITY_SLIDER = MessageConfig(
+                                button_settings=functions.make_slider('capacity', range(1, 4, 1)),
+                                row_buttons=2,
+                                text_message='Выберите вместимость:'
+                            )
+RATING_SLIDER = MessageConfig(
+    button_settings=functions.make_slider('rating', range(1, 11, 1)),
+    row_buttons=5,
+    text_message='Выберите оценку:'
+)
+
+LOADING_MESSAGE = MessageConfig(text_message='Загружаю ⏳')
+
+================================================================================
+
+File: C:\MyBot\constants\texts.py
+Content:
+EDIT_BUTTON_TEXT = 'Редактировать'
+END_RESET_TEXT = 'Данные обновлены'
+OK_TEXT = 'Ок'
+NOTHING_FOUND = 'Ничего нет'
+SUCCESS_SEARCH_TEXT = '☺ Данные, найденные'
+FAILURE_SEARCH_TEXT = '☹ Ничего не найдено'
+
+MAIN_INPUT_DATE_TEXT = '*Введите дату:*\n\n_Ручной ввод_ \\- ввести дату в ручную\n_Автоматическая_ \\- сегоняшняя дата'
+MANUAL_INPUT_DATE_TEXT = 'Введите дату в формате _*гггг\\.мм\\.дд*_:'
+
+SUCCESSFUL_SAVING_TEXT = '_Поле успешно сохранено ✅_'
+
+FAILED_ATTEMPT_INPUT_PASSWORD = 'Пароль неверный, осталось попыток counter. \nВведите пароль еще раз:'
+TEXT_DATA_OPERATOR_MAIN_MENU = ('Перед вами шаблон заполнения данных\\. '
+                                '\nЗаполните *все* поля перед их отправкой в базу данных\\. \n\n\\* '
+                                '_Сохраненные поля отмечены_ ✅')
+TEXT_ANALYST_SETTINGS_MENU = 'Перед вами все доступные настройки.'
+
+ANALYST_OPEN_STATIC = 'Перед вами статистка ....'
+
+TEXT_OPERATOR_MENU = 'AF'
+TEXT_EDIT_PASSWORD_MENU = 'AF'
+TEXT_EDIT_BLACK_LIST_MENU = 'AF'
+TEXT_EDIT_PARAMETERS = 'AF'
+TEXT_SHOW_GROUP_PARAMETERS = 'AF'
+
+TEXT_MENU_GROUP_MESSAGES = 'Выберите: '
+
+TEXT_DELETE_PARAMETER = 'delete'
+
+================================================================================
+Directory: C:\MyBot\constants\__pycache__
+
+File: C:\MyBot\constants\__pycache__\buttons.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\constants.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\errors.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\error_types.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\functions.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\messages.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\texts.cpython-310.pyc
+
+File: C:\MyBot\constants\__pycache__\__init__.cpython-310.pyc
+Directory: C:\MyBot\containers
+
+File: C:\MyBot\containers\bot_containers.py
+Content:
+from constants import error_types, errors
+from aiogram import types
+
+
+class CallBackData:
+    def __init__(self):
+        self._group: str = ''
+        self._state: str = ''
+        self._event: str = ''
+        self._parallel_action: str = ''
+
+    def __str__(self):
+        return f'{self._group}.{self._state}/{self._event}|{self._parallel_action}'
+
+    @property
+    def group(self) -> str:
+        return self._group
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    @property
+    def event(self) -> str:
+        return self._event
+
+    @property
+    def parallel_action(self) -> str:
+        return self._parallel_action
+
+    @staticmethod
+    def __is_truth_callback_data(data: list, callback_data: str):
+        if len(data) != 2:
+            raise error_types.WrongCallbackType(callback_data)
+
+    @staticmethod
+    def __split_callback(seps: tuple[str, ...], callback_data: str) -> None | str:
+        for sep in seps:
+            if sep in callback_data:
+                return sep
+
+    def callback_division(self, callback_data: str) -> None:
+        if not callback_data:
+            raise ValueError('Callback is clean!')
+        if not isinstance(callback_data, str):
+            raise error_types.WrongType(str(type(callback_data)))
+
+        sep = self.__split_callback(('.', '||'), callback_data)
+        if sep:
+            data = callback_data.split(sep)
+            self.__is_truth_callback_data(data, callback_data)
+            self._group, other_group = data
+        else:
+            self._group = callback_data
+            other_group = ''
+
+        if other_group:
+            if '||' in other_group:
+                data = other_group.split('||')
+                self.__is_truth_callback_data(data, callback_data)
+                state_group, self._parallel_action = data
+            else:
+                state_group = other_group
+
+            if state_group:
+                if '/' in state_group:
+                    self._state, self._event = state_group.split('/')
+                else:
+                    self._state = state_group
+
+    @staticmethod
+    def creating_callback(group: str, state: str = '', event: str = '', parallel_action: str = '') -> str:
+        callback = group + (f'.{state}' if state else '') + \
+                   (f'/{event}' if event and state else '') + \
+                   (f'||{parallel_action}' if parallel_action else '')
+
+        return callback
+
+
+class ButtonSettings:
+    def __init__(self, callback: str, text: str):
+        self._text = text
+        self._callback = callback
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    @property
+    def callback(self) -> str:
+        return self._callback
+
+    @property
+    def button_settings(self) -> tuple[str, str]:
+        return self._callback, self._text
+
+    def __str__(self):
+        return f'Text: {self._text}, callback: {self._callback}'
+
+    def __eq__(self, other):
+        if isinstance(other, ButtonSettings):
+            return other.text == self._text and other.callback == self._callback
+        return False
+
+    def __bool__(self):
+        return bool(self._text) and bool(self._callback)
+
+
+class MessageConfig:
+    def __init__(self, button_settings: tuple[tuple[ButtonSettings, ...], ...] | tuple[ButtonSettings, ...] = (),
+                 row_buttons: int | tuple = 1, text_message: str = '', parse_mode: str | None = None):
+        if button_settings:
+            if (count := self.count_tuples(button_settings[0])) < 1:
+                button_settings = (button_settings,)
+
+        if isinstance(row_buttons, int):
+            row_buttons = (row_buttons,)
+
+        self.__button_settings = button_settings
+        self.__row = row_buttons
+        self.__text = text_message
+        self.__parse_mode = parse_mode
+
+    @property
+    def button_settings(self):
+        return self.__button_settings
+
+    @property
+    def row(self):
+        return self.__row
+
+    @property
+    def text(self):
+        return self.__text
+
+    @property
+    def parse_mode(self):
+        return self.__parse_mode
+
+    def count_tuples(self, nested_tuple):
+        count = 0
+        if not isinstance(nested_tuple, ButtonSettings):
+            count += 1
+            for item in nested_tuple:
+                if isinstance(item, tuple):
+                    count += 1
+                    count += self.count_tuples(item[0])
+        return count
+
+    def __str__(self):
+        return f'text: {self.__text}, button_settings: {self.__button_settings}, ' \
+               f'row: {self.__row}, parse_mode: {self.__parse_mode}'
+
+
+class StateUserContainer:
+    def __init__(self):
+        self._state = ''
+        self._user = ''
+
+    def __bool__(self):
+        return bool(len(self._state)) or bool(len(self._user))
+
+    def __str__(self):
+        return f'State: {self._state}, user: {self._user}'
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def user(self):
+        return self._user
+
+    def update_state(self, new_state: str):
+        if not isinstance(new_state, str):
+            raise errors.WRONG_TYPE
+        self._state = new_state
+
+    def update_user(self, new_user: str):
+        if not isinstance(new_user, str):
+            raise errors.WRONG_TYPE
+        self._user = new_user
+
+    def clear(self):
+        self._state = ''
+        self._user = ''
+
+================================================================================
+
+File: C:\MyBot\containers\data_containers.py
+Content:
+class ContainerData:
+    def __init__(self, name: str, value: any = None):
+        self._name = name
+        self._value = value
+
+    def __str__(self):
+        return f'Name: {self._name}; Value: {self._value}'
+
+    def new_value(self, value: any):
+        self._value = value
+
+    @property
+    def value(self):
+        return self._value
+
+    @property
+    def name(self):
+        return self._name
+
+
+class FillingContainerData(ContainerData):
+    NEW_STATUS = ' ✅'
+
+    def __init__(self, name: str, type_input: str, value: any = None, status: str = ' ❌'):
+        super().__init__(name, value)
+
+        self._status = status
+        self._type_input = type_input
+
+    def __str__(self):
+        return f'Name: {self._name}; Status: {self._status}; Value: {self._value}'
+
+    def new_value(self, value: any):
+        self._value = value
+        self.update_status()
+
+    @property
+    def status(self):
+        return self._status
+
+    @property
+    def type_input(self):
+        return self._type_input
+
+    def update_status(self):
+        self._status = self.NEW_STATUS
+
+
+class BlackUserContainer:
+    def __init__(self, id_user: int, date: str, name: str = '', tag: str = ''):
+        self._name = name
+        self._id = id_user
+        self._date = date
+        self._tag = tag
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def date(self):
+        return self._date
+
+    @property
+    def tag(self):
+        return self._tag
+
+    @property
+    def initial_user(self) -> str:
+        if self._name:
+            return self._name
+        return str(self._id)
+
+================================================================================
+
+File: C:\MyBot\containers\msg_mgmt_containers.py
+Content:
+from bot_containers import MessageConfig, ButtonSettings
+from aiogram import types
+
+
+class GroupMessagesContainer:
+    def __init__(self):
+        self.__messages: list[types.message] = []
+        self.__messages_config: list[MessageConfig] = []
+
+        self.__menu_config = []
+
+    def __len__(self):
+        return len(self.__messages)
+
+    def __bool__(self):
+        return bool(self.__messages_config)
+
+    @property
+    def messages(self) -> list[types.message]:
+        return self.__messages
+
+    @property
+    def is_full_sent(self) -> bool:
+        if self.__messages:
+            return bool(len(self.__messages_config) - len(self.__messages))
+        return False
+
+    @property
+    def configs(self) -> list[MessageConfig]:
+        if not self.is_full_sent:
+            return self.__messages_config[len(self.__messages) - 1:]
+        return []
+
+    def start_session(self, messages_config: tuple[MessageConfig], menu_config: MessageConfig):
+        self.__menu_config = menu_config
+        self.__messages_config = messages_config
+
+    def stop_session(self):
+        self.__messages = []
+        self.__messages_config = []
+
+    def append(self, message: types.message):
+        self.__messages.append(message)
+
+    def search(self, search_data: str) -> list[MessageConfig]:
+        pass
+
+
+class PhotoContainer:
+    def __init__(self):
+        self._paths: tuple[str, ...] = ()
+
+    def __bool__(self):
+        return bool(len(self._paths))
+
+    @property
+    def paths(self):
+        return self._paths
+
+    def set_paths(self, paths: tuple[str, ...]):
+        self._paths = paths
+
+    def clear(self):
+        self._paths = ()
+
+
+class MenuGroupContainer:
+    def __init__(self, matrix_size: int):
+        self._settings: list[list[ButtonSettings], ...] = [[]]
+        self._page_matrix: int = 0
+
+        self._matrix_size = matrix_size
+
+        self._back_path = ''
+        self._reset_path = ''
+
+        self._additional_keyboard: tuple[tuple[str, str], ...] | None = None
+
+    def __bool__(self):
+        return bool(len(self._settings[0]))
+
+    def __str__(self):
+        return f'Count pages: {len(self._settings)}, page: {self._page_matrix}'
+
+    @property
+    def back_path(self):
+        return self._back_path
+
+    @property
+    def reset_path(self):
+        return self._reset_path
+
+    @property
+    def page(self):
+        return self._page_matrix
+
+    @property
+    def len_pages(self):
+        return len(self._settings)
+
+    @property
+    def is_end_page(self):
+        return len(self._settings) == self._page_matrix+1
+
+    @property
+    def settings(self) -> tuple[ButtonSettings, ...]:
+        return tuple(self._settings[self._page_matrix])
+
+    @property
+    def size(self):
+        return self._matrix_size
+
+    @property
+    def additional_keyboard(self) -> tuple[tuple[str, str], ...] | None:
+        return self._additional_keyboard
+
+    def button_setting(self, number: int):
+        return self._settings[self._page_matrix][number]
+
+    def append(self, button_settings: ButtonSettings):
+        if len(self._settings[-1]) == self._matrix_size:
+            self._settings.append([])
+        self._settings[-1].append(button_settings)
+
+    def add_back_path(self, path: str):
+        self._back_path = path
+
+    def add_reset_path(self, path: str):
+        self._reset_path = path
+
+    def add_additional_keyboard(self, keyboard: tuple[tuple[str, str], ...]):
+        self._additional_keyboard = keyboard
+
+    def next_page(self):
+        self._page_matrix += 1
+
+    def back_page(self):
+        self._page_matrix -= 1
+
+    def search(self, data_search: str) -> tuple[ButtonSettings, ...]:
+        buttons = []
+        data_search = data_search.lower()
+
+        for page in self._settings:
+            for button in page:
+                text = button.text.lower()
+                if data_search in text:
+                    buttons.append(button)
+
+        return tuple(buttons)
+
+    def clear(self):
+        self._settings = [[]]
+        self._page_matrix = 0
+
+================================================================================
+Directory: C:\MyBot\interactive_tools
+
+File: C:\MyBot\interactive_tools\filling_menu_managment.py
+Content:
+from data_management import FillingManager
+
+from constants import texts, constants, buttons, error_types
+
+from menu_hanlders import menu_context, MenuEventHandler
+
+from datetime import date
+
+from containers.bot_containers import MessageConfig, StateUserContainer, ButtonSettings
+
+
+class FillingInputs:
+    def __init__(self, filling_container: FillingManager, state_user: StateUserContainer,
+                 menu_handler: MenuEventHandler, main_path: str, slider_message: MessageConfig = None,
+                 input_int_message: MessageConfig = None):
+        self._filling_container = filling_container
+        self._state_user = state_user
+        self._menu_handler = menu_handler
+
+        self._SLIDER_MESSAGE = slider_message
+        self._INPUT_INT_MESSAGE = input_int_message
+        self._MAIN_PATH = main_path
+
+        self._INPUTS_HANDLERS = {
+            'int': self.__input_int,
+            'menu': self.__input_menu,
+            'slider': self.__input_slider,
+            'date': self.__input_date
+        }
+
+    def __contains__(self, item):
+        return item in self._filling_container.data.keys()
+
+    def filling_interaction(self, state, event) -> MessageConfig:
+        type_input = self._filling_container.data.get(state).type_input
+
+        handler = self._INPUTS_HANDLERS.get(type_input, False)
+
+        if not handler:
+            raise error_types.InvalidError('input type', type_input, ', '.join(self._INPUTS_HANDLERS.keys()))
+
+        return handler(state, event)
+
+    def set_slider(self, slider_message: MessageConfig):
+        self._SLIDER_MESSAGE = slider_message
+
+    def set_input_int_message(self, input_int_message: MessageConfig):
+        self._INPUT_INT_MESSAGE = input_int_message
+
+    def __input_int(self, state: str, event: str) -> MessageConfig:
+        if self._INPUT_INT_MESSAGE is None:
+            raise error_types.CleanData('Input message')
+        print(state)
+        self._state_user.update_state(f'filling int:{state}')
+
+        return self._INPUT_INT_MESSAGE
+
+    def __input_menu(self, state: str, event: str) -> MessageConfig:
+        menu_context.set_strategy(self._menu_handler)
+
+        menu_context.set_state(state)
+        return menu_context.event_handler(event)
+
+    def __input_slider(self, state: str, event: str) -> MessageConfig:
+        if self._SLIDER_MESSAGE is None:
+            raise error_types.CleanData('Slider message', 'None')
+
+        if 'save' in event:
+            value = event[-1]
+            response_message = self.__save_filling_data(value, state, self._filling_container)
+        else:
+            response_message = self._SLIDER_MESSAGE
+
+        return response_message
+
+    def __input_date(self, state: str, event: str) -> MessageConfig:
+        if event:
+            if event == 'auto':
+                # Today date
+
+                input_date = date.today()
+                response_message = self.__save_filling_data(input_date, state, self._filling_container)
+
+            elif event == 'manual':
+                # Input date
+
+                self._state_user.update_state(f'filling date:{state}')
+                response_message = self.__manual_input_date(state)
+            else:
+                raise error_types.WrongEvent(event)
+        else:
+            # Make selection menu
+            response_message = self.__main_input_date_menu(state)
+
+        return response_message
+
+    def __save_filling_data(self, value: any, name: str, filling_class: FillingManager):
+        filling_class.add_value(name, value)
+
+        return MessageConfig(button_settings=(ButtonSettings(self._MAIN_PATH, buttons.SUCCESSFUL_SAVING_TEXT),),
+                             row_buttons=1,
+                             text_message=texts.SUCCESSFUL_SAVING_TEXT,
+                             parse_mode=constants.PARSE_MODE1)
+
+    def __main_input_date_menu(self, state) -> MessageConfig:
+        return MessageConfig(button_settings=(
+                            ButtonSettings(f"interaction.{state}/manual", buttons.DATE_MANUAL_INPUT_TEXT),
+                            ButtonSettings(f"interaction.{state}/auto", buttons.DATE_AUTO_INPUT_TEXT),
+                            ButtonSettings(self._MAIN_PATH, buttons.BACK_TEXT)),
+                            row_buttons=1,
+                            text_message=texts.MAIN_INPUT_DATE_TEXT,
+                            parse_mode=constants.PARSE_MODE1)
+
+    def __manual_input_date(self, state) -> MessageConfig:
+        return MessageConfig(button_settings=(ButtonSettings(f'interaction.{state}', buttons.BACK_TEXT),),
+                             row_buttons=1,
+                             text_message=texts.MANUAL_INPUT_DATE_TEXT,
+                             parse_mode=constants.PARSE_MODE1)
+
+================================================================================
+
+File: C:\MyBot\interactive_tools\menu_manager.py
+Content:
+from constants import constants, buttons, error_types, errors
+from containers.bot_containers import ButtonSettings, MessageConfig, CallBackData
+from containers.msg_mgmt_containers import MenuGroupContainer
+
+
+class MenuManager:
+    def __init__(self, len_menu: int = constants.LEN_MENU, menu_buttons_row: int = constants.MENU_BUTTONS_ROW,
+                 menu_row: int = constants.MENU_ROW):
+        self.group_menu = MenuGroupContainer(len_menu)
+        self.prev_group_menu_settings = ()
+
+        self.MENU_BUTTONS_ROW = menu_buttons_row
+        self.MENU_ROW = menu_row
+
+    def make_menu_keyboard(self, button_settings: tuple[ButtonSettings, ...], reset_path: str, back_path: str,
+                           additional_keyboard: tuple[tuple[str, str], ...] | None = None):
+        self.group_menu.clear()
+        if button_settings:
+            for button_setting in button_settings:
+                self.group_menu.append(button_setting)
+        else:
+            raise errors.WRONG_MENU_KEYBOARD_DATA
+
+        self.group_menu.add_back_path(back_path)
+        self.group_menu.add_reset_path(reset_path)
+
+        self.group_menu.add_additional_keyboard(additional_keyboard)
+
+    def send_menu(self, text_menu: str, parse_mode: str | None = None) -> MessageConfig:
+        button_settings = []
+        row = []
+
+        if self.group_menu:
+            button_settings.append(self.group_menu.settings)
+            row.append(self.MENU_ROW)
+
+        is_end = self.group_menu.is_end_page
+        len_menu = self.group_menu.len_pages
+        back_button = buttons.BACK_BUTTON if not self.group_menu.page == 0 and len_menu > 1 else ()
+        next_button = buttons.NEXT_BUTTON if len_menu > 1 and not is_end else ()
+        menu_buttons = buttons.MENU_BUTTONS if len_menu > 1 else ()
+
+        if self.group_menu.additional_keyboard is not None and self.group_menu.page == 0:
+            button_settings.append(self.group_menu.additional_keyboard)
+            row.append(1)
+
+        button_settings.append(menu_buttons + (ButtonSettings(self.group_menu.reset_path,
+                                                              buttons.RESET_TEXT_GROUP_MENU),
+                                               ButtonSettings(self.group_menu.back_path,
+                                                              buttons.BACK_TEXT_GROUP_MENU)))
+        row.append(self.MENU_BUTTONS_ROW)
+
+        if next_button or back_button:
+            button_settings.append(back_button + next_button)
+            row.append(len(button_settings[-1]))
+
+        configs = MessageConfig(button_settings=tuple(button_settings),
+                                row_buttons=tuple(row),
+                                text_message=text_menu,
+                                parse_mode=parse_mode)
+
+        return configs
+
+    def exit_menu(self):
+        if self.group_menu:
+            self.group_menu.clear()
+
+    def browsing(self, event: str, text: str, parse_mode: str) -> MessageConfig:
+        if event == 'back':
+            self.group_menu.back_page()
+        elif event == 'next':
+            self.group_menu.next_page()
+
+        configs = self.send_menu(text_menu=text, parse_mode=parse_mode)
+
+        return configs
+
+    def reset_menu(self, reset_path: str, button_text: str, text: str) -> MessageConfig:
+        self.group_menu.clear()
+        return MessageConfig(text_message=text,
+                             button_settings=(ButtonSettings(reset_path, button_text),),
+                             row_buttons=1)
+
+    @staticmethod
+    def number_button(event: str) -> int:
+        if '_' not in event:
+            raise error_types.EventSintaxisError(event)
+        return int(event.split('_')[1])
+
+    def restore_menu_button(self, number_button: int) -> int:
+        page = self.group_menu.page
+        size = self.group_menu.size
+
+        return page * size + number_button
+
+    def menu_keyboard(self, global_state: str, state: str,
+                      event: str, texts_buttons: tuple[str, ...]) -> tuple[ButtonSettings, ...]:
+        size = self.group_menu.size
+        button_setting = []
+        for number, text in zip(range(len(texts_buttons)), texts_buttons):
+            button_setting.append(ButtonSettings(
+                CallBackData.creating_callback(global_state, state, f'{event}_{number % size}'), text))
+        return tuple(button_setting)
+
+================================================================================
+
+File: C:\MyBot\interactive_tools\photo_manager.py
+Content:
+from aiogram import types
+from aiogram.types import InputMediaPhoto, FSInputFile
+
+from containers.msg_mgmt_containers import PhotoContainer
+from constants import messages
+from interactive_tools.text_messages.text_manager import TextManager
+
+from setups.bot_setup import bot
+
+
+class PhotoManager:
+    def __init__(self, text_manager: TextManager):
+        self._messages: list[types.Message] = []
+        self._text_manager = text_manager
+
+        self.photos = PhotoContainer()
+
+    async def send_photos(self, is_loading_message=True):
+        media = []
+
+        if is_loading_message:
+            await self._text_manager.send_message(messages.LOADING_MESSAGE, False)
+
+        for path in self.photos.paths:
+            media.append(InputMediaPhoto(media=FSInputFile(path)))
+
+        self._messages = await bot.send_media_group(self._text_manager.bots_message.chat.id, media)
+
+        await self._text_manager.delete_message(self._text_manager.bots_message.chat.id,
+                                                self._text_manager.bots_message.message_id)
+
+        if is_loading_message:
+            await self._text_manager.send_message(messages.LOADING_MESSAGE, True)
+
+    async def del_photos(self, reset=True):
+        for msg in self._messages:
+            try:
+                await self._text_manager.delete_message(msg.chat.id, msg.message_id)
+            except Exception as e:
+                print(e)
+
+        if reset:
+            self.photos.clear()
+
+================================================================================
+
+File: C:\MyBot\interactive_tools\text_manager.py
+Content:
+from aiogram import types
+from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
+
+from setups.bot_setup import bot
+from containers.bot_containers import MessageConfig, ButtonSettings
+
+
+class TextManager:
+    def __init__(self):
+        self.bots_message = None
+
+        self.config: MessageConfig | None = None
+        self.prev_config: MessageConfig | None = None
+
+    @staticmethod
+    def make_keyboard(button_settings: tuple[tuple[ButtonSettings, ...]],
+                      row_keyboards: tuple) -> types.inline_keyboard_markup:
+        keyboard = InlineKeyboardBuilder()
+
+        for button_setting, row_keyboard in zip(button_settings, row_keyboards):
+            for i in range(0, len(button_setting), row_keyboard):
+                row = button_setting[i:i + row_keyboard]
+                keyboard.row(*[InlineKeyboardButton(text=settings.text,
+                                                    callback_data=settings.callback) for settings in row])
+
+        return keyboard.as_markup()
+
+    async def send_message(self, message: MessageConfig, is_new_m: bool = True, remembered_configs: bool = True):
+
+        """
+        :param is_new_m: New or Old message
+        :param message: data from class
+        :param remembered_configs: should I remember the message settings
+        :return: None
+        """
+        button_setting = message.button_settings
+        rows = message.row
+        text = message.text
+        parse_mode = message.parse_mode
+
+        if is_new_m is False and self.prev_config:
+            is_edited_button_settings = button_setting != self.config.button_settings
+            is_edited_text = text != self.config.text
+        else:
+            is_edited_text = True
+            is_edited_button_settings = True
+
+        if is_edited_text or is_edited_button_settings:
+            if len(button_setting) > 0:
+                builder = self.make_keyboard(button_setting, rows)
+            else:
+                builder = None
+
+            if remembered_configs:
+                self.prev_config = self.config
+                self.config = message
+            if not is_new_m:
+                try:
+                    self.bots_message = await bot.edit_message_text(chat_id=self.bots_message.chat.id,
+                                                                    message_id=self.bots_message.message_id,
+                                                                    text=text, reply_markup=builder,
+                                                                    parse_mode=parse_mode)
+                except TelegramBadRequest as error:
+                    print(error)
+                    if 'message to edit not found' in str(error):
+                        is_new_m = True
+
+            if is_new_m:
+                self.bots_message = await bot.send_message(chat_id=self.bots_message.chat.id, text=text,
+                                                           reply_markup=builder,
+                                                           parse_mode=parse_mode)
+
+    @staticmethod
+    async def delete_message(chat_id: int, message_id: int):
+        try:
+            await bot.delete_message(chat_id, message_id)
+        except Exception as e:
+            print(e)
+
+================================================================================
+
+File: C:\MyBot\setups\bot_setup.py
+Content:
+from dotenv import load_dotenv
+import os
+
+from constants import errors
+
+from aiogram import Bot
+
+load_dotenv()
+TOKEN = os.getenv('BOT_TOKEN')
+if TOKEN is None or not TOKEN:
+    raise errors.BOT_TOKEN_IS_NONE
+
+try:
+    bot = Bot(token=TOKEN)
+except Exception as e:
+    print(e)
+
+================================================================================
+
+File: C:\MyBot\setups\router_setup.py
+Content:
+from aiogram.filters.command import Command
+
+from my_bot import MYBot
+
+from aiogram import Router, types
+
+from users_manager import Users
+
+from containers.bot_containers import CallBackData
+
+router = Router()
+users = Users()
+
+
+def structuring_callback(callback: str) -> CallBackData:
+    structural_callback = CallBackData()
+    structural_callback.callback_division(callback)
+
+    return structural_callback
+
+
+def callback_handler_data(callback: types.CallbackQuery) -> tuple[CallBackData, MYBot]:
+    struct_callback = structuring_callback(callback.data)
+    user = users.locate_user(callback.from_user.id)
+
+    return struct_callback, user
+
+
+@router.message(Command('restore', 'reset'))
+async def restore(message: types.Message):
+    user = users.locate_user(message.from_user.id)
+    await user.state_command(message)
+
+
+@router.message(Command('start'))
+async def start(message: types.Message):
+    user = users.locate_user(message.from_user.id)
+    await user.start(message)
+
+
+@router.callback_query(lambda callback: callback.data.startswith('interaction'))
+async def interaction_handler(callback: types.CallbackQuery):
+    struct_callback, user = callback_handler_data(callback)
+    await user.parallel_actions(struct_callback)
+    await user.interaction_entry_point(struct_callback)
+
+
+@router.callback_query(lambda callback: callback.data.startswith('basic'))
+async def basic_callback_query(callback: types.CallbackQuery):
+    struct_callback, user = callback_handler_data(callback)
+    await user.parallel_actions(struct_callback)
+    await user.basic_callback_center(struct_callback)
+
+
+@router.callback_query(lambda callback: callback.data.startswith('menu_operation'))
+async def menu_handler(callback: types.CallbackQuery):
+    struct_callback, user = callback_handler_data(callback)
+    await user.menu_operations(struct_callback)
+
+
+@router.message()
+async def message_handler(message: types.Message):
+    user = users.locate_user(message.from_user.id)
+    await user.user_input(message)
+
+================================================================================
